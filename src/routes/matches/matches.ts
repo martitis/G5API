@@ -427,24 +427,31 @@ router.get("/", async (req, res, next) => {
 router.get("/mymatches", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     let isAscending: boolean = req.query?.asc == null ? false : Boolean(req.query.asc).valueOf();
-    /*let sql = "SELECT mtch.*, usr.name as owner FROM `match` mtch " + 
-              "JOIN user usr ON mtch.user_id = usr.id " +
-              "WHERE user_id = ? ORDER BY id DESC";*/
-    let sql: string =
-      "SELECT mtch.id, mtch.user_id, mtch.server_id, mtch.team1_id, mtch.team2_id, mtch.winner, mtch.team1_score, " +
-      "mtch.team2_score, mtch.team1_series_score, mtch.team2_series_score, mtch.team1_string, mtch.team2_string, " +
-      "mtch.cancelled, mtch.forfeit, mtch.start_time, mtch.end_time, mtch.max_maps, mtch.title, mtch.skip_veto, mtch.private_match, " +
-      "mtch.enforce_teams, mtch.min_player_ready, mtch.season_id, mtch.is_pug, usr.name as owner, mp.team1_score as team1_mapscore, mp.team2_score as team2_mapscore " +
-      "FROM `match` mtch JOIN user usr ON mtch.user_id = usr.id LEFT JOIN map_stats mp ON mp.match_id = mtch.id " +
-      "WHERE mtch.user_id = ? " +
-      "OR cancelled IS NULL " +
-      "GROUP BY mtch.id " +
-      "ORDER BY id DESC";
-    const matches: RowDataPacket[] = await db.query(sql, [req?.user?.id]);
+
+    let sql: string = `
+      SELECT mtch.id, mtch.user_id, mtch.server_id, mtch.team1_id, mtch.team2_id, mtch.winner, 
+             mtch.team1_score, mtch.team2_score, mtch.team1_series_score, mtch.team2_series_score, 
+             mtch.team1_string, mtch.team2_string, mtch.cancelled, mtch.forfeit, mtch.start_time, 
+             mtch.end_time, mtch.max_maps, mtch.title, mtch.skip_veto, mtch.private_match, 
+             mtch.enforce_teams, mtch.min_player_ready, mtch.season_id, mtch.is_pug, 
+             usr.name AS owner, 
+             mp.team1_score AS team1_mapscore, mp.team2_score AS team2_mapscore,
+             gs.display_name AS server_name, gs.ip_string, gs.port
+      FROM \`match\` mtch
+      JOIN user usr ON mtch.user_id = usr.id
+      LEFT JOIN map_stats mp ON mp.match_id = mtch.id
+      LEFT JOIN game_server gs ON mtch.server_id = gs.id
+      WHERE mtch.user_id = ? OR mtch.cancelled IS NULL
+      GROUP BY mtch.id
+      ORDER BY id DESC;
+    `;
+
+    const matches: RowDataPacket[] = await db.query(sql, [req.user.id]);
     if (!matches.length) {
       res.status(404).json({ message: "No matches found." });
       return;
     }
+
     if (isAscending) {
       res.json({ matches: matches.reverse() });
     } else {
@@ -455,6 +462,8 @@ router.get("/mymatches", Utils.ensureAuthenticated, async (req, res, next) => {
     res.status(500).json({ message: (err as Error).toString() });
   }
 });
+
+
 
 /**
  * @swagger

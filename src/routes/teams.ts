@@ -862,39 +862,74 @@ router.get("/:team_id/result/:match_id", async (req, res) => {
  *         $ref: '#/components/responses/Error'
  */
 router.post("/challonge", Utils.ensureAuthenticated, async (req, res) => {
-
   try {
     let userID: number = req.user!.id;
     const userInfo: RowDataPacket[] = await db.query("SELECT challonge_api_key FROM user WHERE id = ?", [userID]);
     let challongeAPIKey: string | undefined | null = Utils.decrypt(userInfo[0].challonge_api_key);
     let tournamentId: string = req.body[0].tournament_id;
-    let challongeResponse: any = await fetch("https://api.challonge.com/v1/tournaments/" + tournamentId + "/participants.json?api_key=" + challongeAPIKey);
-    let challongeData: any = await challongeResponse.json();
-    if (!challongeData) {
-      throw "No teams found for Tournament " + tournamentId + "."
-    }
-    let sqlString = "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES ?";
+
     if (!challongeAPIKey) {
       throw "No challonge API key provided for user.";
     }
+
+    // Fetch the list of participants (teams) in the tournament
+    let challongeResponse = await fetch("https://api.challonge.com/v1/tournaments/" + tournamentId + "/participants.json?api_key=" + challongeAPIKey);
+    let challongeData = await challongeResponse.json();
+
+    if (!challongeData || challongeData.length === 0) {
+      throw "No teams found for Tournament " + tournamentId + ".";
+    }
+
     let teamArray: Array<any> = [];
-    challongeData.forEach(async (team: { participant: { display_name: string; id: any; }; }) => {
-      teamArray.push([
-        req.user?.id,
-        team.participant.display_name.substring(0, 40),
-        team.participant.display_name.substring(0, 40),
-        team.participant.id
-      ]);
-    });
-    await db.query(sqlString, [teamArray]);
+    let authArray: Array<any> = [];
+
+    // Iterate over each team
+    for (let team of challongeData) {
+      let displayName = team.participant.display_name.substring(0, 40);
+      let challongeTeamId = team.participant.id;
+
+      // Insert team data into the 'team' table and retrieve the inserted team's ID
+      let insertResult: any = await db.query(
+        "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES (?, ?, ?, ?)",
+        [userID, displayName, displayName, challongeTeamId]
+      );
+
+      let teamID = insertResult.insertId; // Get the ID of the inserted team
+
+      // Check if 'custom_field_response' contains Steam IDs
+      if (team.participant.custom_field_response) {
+        let isFirstPlayer = true;
+
+        for (let [key, value] of Object.entries(team.participant.custom_field_response)) {
+          if (value) {
+            // Mark the first player as the captain
+            let isCaptain = isFirstPlayer;
+            isFirstPlayer = false; // Only the first player is the captain
+
+            // Insert the team ID (from the team table), Steam ID (auth), and captain flag into the team_auth_names table
+            authArray.push([teamID, value, isCaptain ? 1 : 0]); // 1 for captain, 0 for others
+          }
+        }
+      }
+    }
+
+    // Insert Steam IDs into the 'team_auth_names' table with the captain flag
+    if (authArray.length > 0) {
+      let authSqlString = "INSERT INTO team_auth_names (team_id, auth, captain) VALUES ?";
+      await db.query(authSqlString, [authArray]);
+    }
+
     res.json({
-      message: "Challonge teams imported successfully!"
+      message: "Challonge teams and authentication data (Steam IDs) imported successfully!"
     });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: (err as Error).toString() });
   }
 });
+
+
 
 /* Helper Functions */
 /** Gets the steam image of each palyer.
