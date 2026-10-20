@@ -13,13 +13,16 @@ The line numbers are from the 2026-10-20 analysis and will drift, so search for 
 ## Step 0: Context files
 - [x] `G5API/CLAUDE.md`, `G5V/CLAUDE.md`, this checklist
 
-## Phase 0: Build and tooling
-- [ ] Install deps; make `yarn build` pass (merge broke TS: `src/routes/teams.ts:877-887` untyped Challonge JSON; `src/routes/matches/matches.ts:449` `req.user` possibly undefined)
-- [ ] Fix dev/test migration duplicate `bomb_time_remaining` (`migrations/{development,test}/20230615140704-get5db.js:66` vs `20230630204451`); collapse the 3 migration copies into one
-- [ ] ESLint + Prettier for G5API
-- [ ] CI (build + lint + tests) for both repos; stop pushing to upstream GHCR
-- [ ] URL-join helper for `apiURL` (`matches.ts:1288`, `matchserver.ts:369`, `utility/auth.ts:36`)
-- [ ] Cross-platform test scripts (`cross-env`; `NODE_ENV=test &&` doesn't export)
+## Phase 0: Build and tooling (branch `phase0-build-tooling` in both repos)
+- [x] `yarn build` passes. Fixed the merge's TS errors (Challonge JSON typed in `teams.ts`; `req.user!` in `matches.ts` mymatches). Removed the bogus `tsc` npm package, which shadowed TypeScript's `tsc` binary so `yarn build` compiled nothing
+- [x] The dev migration's duplicate `bomb_time_remaining` is fixed (test was already correct). **Not** collapsing the 3 migration folders: db-migrate stores the scope in applied migration names, so live DBs would re-run everything
+- [x] ESLint 10 + typescript-eslint (type-aware) + Prettier. Existing violations are warnings with a `--max-warnings` cap (1189). No mass reformat
+- [x] CI `ci.yml` in both repos (G5API: build + lint + MySQL integration tests; G5V: lint cap 34 + build). GHCR image workflows are now manual-only (they pushed to your own GHCR on every push, not upstream's). The G5API test job hasn't run yet; it needs a push to GitHub
+- [x] `Utils.apiUrl()` used for every URL built from `server.apiURL`
+- [x] Cross-platform scripts (`cross-env`, `scripts/test-admin.mjs`). The jest teardown no longer does `process.exit(0)`, which had hidden failing tests; `--forceExit` is used instead
+- [x] Removed `package-lock.json` (it was out of sync, `npm ci` failed on master, and nothing used it); `yarn.lock` is the only lockfile
+- [x] G5V: `.yarnrc` ignores the Node ≤19 engines check from Vue CLI's node-ipc (until Phase 4)
+- [ ] Follow-up: `docker-compose.yml` pulls `ghcr.io/phlexplexico/g5api:latest` (upstream). Point it at your image or drop it (Phase 6)
 
 ## Phase 1: Critical security (backend)
 - [ ] Auth on unauthenticated deletes: `seasons.ts:531`, `playerstats/playerstats.ts:892`, `playerstats/extrastats.ts:719`; audit all `req.user && …` checks

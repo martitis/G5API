@@ -13,17 +13,25 @@ Frontend: `../G5V` (Vue). Roadmap and progress: [IMPROVEMENT_PLAN.md](IMPROVEMEN
 - Swagger at `/api-docs` (JSDoc `@swagger` blocks in the route files plus `src/types/swagger/`)
 
 ## Commands
+Yarn 1 is the package manager; `yarn.lock` is the only lockfile. If yarn isn't installed globally, use `npx yarn@1.22.22 <cmd>`.
+All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/export).
 - `yarn build`: tsc. It must pass; a failing build blocks `yarn start` and deploys.
+- `yarn lint`: ESLint (type-aware, `eslint.config.js`) with `--max-warnings=<current count>`. **Lower the cap when you
+  fix warnings, never raise it.** Promote a rule from "warn" to "error" once its category is fixed.
+- `yarn format <files>`: Prettier (`.prettierrc.json`). The codebase hasn't been mass-formatted, so format only files you rewrite.
 - `yarn start`: dev (tsc-watch + nodemon). `yarn startprod` / `restartprod` / `stopprod` run pm2 with `prodrun.json`.
-- Migrations: `yarn migrate-<dev|prod|test>-upgrade`, `migrate-create-*`, `migrate-drop-*`.
+- Migrations: `yarn migrate-<dev|prod|test>-upgrade`, `migrate-create-*`, `migrate-drop-*`. Migrations are copied in
+  `migrations/{development,production,test}`. Keep the three identical, and **don't merge or move them**: db-migrate
+  records each applied migration with its scope folder, so live DBs would re-run everything.
 - `yarn test`: builds, recreates the test DB, then runs the Jest suites in `__test__/` in a fixed order. It needs a live MySQL
-  and `config/test.json`, and the scripts use POSIX `sed`/`export` (run them from Git Bash or WSL).
+  and `config/test.json`. CI (`.github/workflows/ci.yml`) runs it against a MySQL 8 service.
 - Don't put files in `docs/`: `yarn doc` writes jsdoc there and `yarn docclean` deletes it.
 
 ## Config
 - `config/{development,production,test}.json` are created from `*.json.template` and gitignored (they hold secrets).
 - `server.dbKey` must be exactly 16 bytes (the AES key that encrypts RCON passwords and API keys in the DB).
-- `server.apiURL` is the public base URL that the game server calls back on. Watch for trailing-slash double `//`.
+- `server.apiURL` is the public base URL that the game server calls back on. Always build URLs from it with
+  `Utils.apiUrl("/path")`, which handles trailing slashes.
 - `admins.steam_ids` / `super_admins.steam_ids` overwrite the user's role flags on every Steam login.
 - Deployment: bare Node + pm2 behind nginx/Caddy. SSE routes need `proxy_buffering off` and long timeouts.
 

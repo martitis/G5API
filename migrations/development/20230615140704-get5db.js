@@ -62,8 +62,7 @@ exports.up = function (db) {
     round_number: { type: "int", length: 11, notNull: true },
     round_time: { type: "int", length: 11, notNull: true },
     site: { type: "string", length: 10, notNull: true },
-    defused: { type: "boolean", notNull: false },
-    bomb_time_remaining: { type: "int", length: 11, notNull: false }
+    defused: { type: "boolean", notNull: false }
   });
 };
 

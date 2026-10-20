@@ -1,0 +1,54 @@
+name: CI
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+jobs:
+  build-lint:
+    name: Build and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
+      - run: yarn lint
+
+  test:
+    name: Integration tests (MySQL)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Create config/test.json
+        run: |
+          node -e '
+          const fs = require("fs");
+          const c = JSON.parse(fs.readFileSync("config/test.json.template", "utf8"));
+          c.server.dbKey = "ci-test-key-1234";
+          c.test.user = "root";
+          c.test.password = "root";
+          fs.writeFileSync("config/test.json", JSON.stringify(c, null, 2));
+          '
+      - run: yarn test

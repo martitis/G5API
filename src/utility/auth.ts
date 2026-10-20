@@ -32,11 +32,8 @@ function strategyForEnvironment() {
     default:
       strategy = new SteamStrategy(
         {
-          returnURL:
-            config.get("server.apiURL") +
-            "/auth/steam/return",
-          realm:
-            config.get("server.apiURL"),
+          returnURL: Utils.apiUrl("/auth/steam/return"),
+          realm: Utils.apiUrl("/"),
           apiKey: config.get("server.steamAPIKey"),
         },
         returnStrategy

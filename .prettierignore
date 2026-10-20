@@ -1,0 +1,7 @@
+dist/
+docs/
+coverage/
+public/
+migrations/
+node_modules/
+yarn.lock

@@ -874,9 +874,15 @@ router.post("/challonge", Utils.ensureAuthenticated, async (req, res) => {
 
     // Fetch the list of participants (teams) in the tournament
     let challongeResponse = await fetch("https://api.challonge.com/v1/tournaments/" + tournamentId + "/participants.json?api_key=" + challongeAPIKey);
-    let challongeData = await challongeResponse.json();
+    let challongeData = (await challongeResponse.json()) as Array<{
+      participant: {
+        id: number;
+        display_name: string;
+        custom_field_response?: Record<string, string> | null;
+      };
+    }>;
 
-    if (!challongeData || challongeData.length === 0) {
+    if (!Array.isArray(challongeData) || challongeData.length === 0) {
       throw "No teams found for Tournament " + tournamentId + ".";
     }
 
