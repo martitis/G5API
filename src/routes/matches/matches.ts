@@ -18,10 +18,15 @@ import GameServer from "../../utility/serverrcon.js";
 
 import GlobalEmitter from "../../utility/emitter.js";
 
-import { compare } from "compare-versions";
-import { MatchJSON } from "../../types/matches/MatchJson.js";
+import config from "config";
+import {
+  buildMatchConfig,
+  MatchConfigError,
+  MatchZyConfig,
+  TeamAuthRow,
+  TeamRow
+} from "../../services/matchconfig.js";
 import { MatchData } from "../../types/matches/MatchData.js";
-import { TeamData } from "../../types/teams/TeamData.js";
 import { RowDataPacket } from "mysql2";
 import { AccessMessage } from "../../types/mapstats/AccessMessage.js";
 
@@ -1011,117 +1016,51 @@ router.get("/page/:firstvalue&:lastvalue", async (req, res, next) => {
  */
 router.get("/:match_id/config", async (req, res, next) => {
   try {
-    let sql: string = "SELECT * FROM `match` WHERE id = ?";
     let matchID: string = req.params.match_id;
-    let matchCvars: RowDataPacket[];
-    let matchSpecs: RowDataPacket[];
-    let apiKey: string | undefined = req.get("Authorization");
-    
-    const matchInfo: RowDataPacket[] = await db.query(sql, [matchID]);
+    const matchInfo: RowDataPacket[] = await db.query("SELECT * FROM `match` WHERE id = ?", [matchID]);
     if (!matchInfo.length) {
       res.status(404).json({ message: "No match found." });
       return;
     }
-    if (
-      matchInfo[0].plugin_version != "unknown" && compare(
-        matchInfo[0].plugin_version,
-        "0.13.1",
-        ">="
-      )
-    ) {
-      // Check for API key and deny access if not provided.
-      if (!apiKey) {
-        res
-          .status(401)
-          .json({ message: "Unauthorized to access match config." });
-        return;
-      } else if (matchInfo[0].api_key.localeCompare(apiKey)) {
-        res
-          .status(401)
-          .json({ message: "Unauthorized to access match config." });
-        return;
-      }
+    const match = matchInfo[0];
+    // MatchZy fetches this with the match key. The owner or a super admin may also view it, e.g. to preview.
+    const apiKey: string | undefined = req.get("Authorization");
+    const hasKey: boolean = Utils.safeCompare(apiKey, match.api_key);
+    const isOwner: boolean =
+      req.user != null && (req.user.id == match.user_id || Utils.superAdminCheck(req.user));
+    if (!hasKey && !isOwner) {
+      res.status(401).json({ message: "Unauthorized to access match config." });
+      return;
     }
-    let matchJSON: MatchJSON = {
-      matchid: matchID,
-      match_title: matchInfo[0].title,
-      side_type: matchInfo[0].side_type,
-      veto_first: matchInfo[0].veto_first,
-      skip_veto: matchInfo[0].skip_veto == 0 ? false : true,
-      min_players_to_ready:
-        matchInfo[0].min_player_ready !== null
-          ? matchInfo[0].min_player_ready
-          : 5,
-      players_per_team:
-        matchInfo[0].players_per_team !== null
-          ? matchInfo[0].players_per_team
-          : 5,
-      team1: {},
-      team2: {},
-      cvars:
-        matchInfo[0].plugin_version != null &&
-        (matchInfo[0].plugin_version == "unknown" ||
-          compare(matchInfo[0].plugin_version, "0.13.1", "<"))
-          ? {
-              get5_web_api_url: Utils.apiUrl("/"),
-              get5_check_auths: matchInfo[0].enforce_teams.toString()
-            }
-          : {
-              get5_check_auths: matchInfo[0].enforce_teams.toString(),
-              get5_remote_log_url: Utils.apiUrl("/v2"),
-              get5_remote_log_header_key: "Authorization",
-              get5_remote_log_header_value: apiKey,
-              get5_remote_backup_url: Utils.apiUrl("/v2/backup"),
-              get5_remote_backup_header_key: "Authorization",
-              get5_remote_backup_header_value: apiKey,
-              get5_demo_upload_url: Utils.apiUrl("/v2/demo"),
-              get5_demo_upload_header_key: "Authorization",
-              get5_demo_upload_header_value: apiKey
-            },
-      spectators: {
-        players: []
+    const teamSql: string = "SELECT id, name, tag, flag, logo FROM team WHERE id = ?";
+    const authSql: string =
+      "SELECT auth, name, coach FROM team_auth_names WHERE team_id = ? ORDER BY captain DESC";
+    const [team1Data, team2Data, team1Auths, team2Auths, matchCvars, matchSpecs] = await Promise.all([
+      db.query(teamSql, [match.team1_id]),
+      db.query(teamSql, [match.team2_id]),
+      db.query(authSql, [match.team1_id]),
+      db.query(authSql, [match.team2_id]),
+      db.query("SELECT cvar_name, cvar_value FROM match_cvar WHERE match_id = ?", [matchID]),
+      db.query("SELECT auth, spectator_name FROM match_spectator WHERE match_id = ?", [matchID])
+    ]);
+    const matchConfig: MatchZyConfig = buildMatchConfig(
+      {
+        match,
+        team1: { team: team1Data[0] as TeamRow | undefined, auths: team1Auths as TeamAuthRow[] },
+        team2: { team: team2Data[0] as TeamRow | undefined, auths: team2Auths as TeamAuthRow[] },
+        cvars: matchCvars as Array<{ cvar_name: string; cvar_value: any }>,
+        spectators: matchSpecs as Array<{ auth: string; spectator_name: string | null }>,
+        uploadDemos: Boolean(config.get("server.uploadDemos"))
       },
-      maplist:
-        matchInfo[0].veto_mappool !== null
-          ? matchInfo[0].veto_mappool.replace(/[,]+/g, "").split(" ")
-          : null,
-      min_spectators_to_ready:
-        matchInfo[0].min_spectators_to_ready !== null
-          ? matchInfo[0].min_spectators_to_ready
-          : 0,
-      wingman: matchInfo[0]?.wingman == 1 ? true : false,
-    };
-    matchJSON.num_maps = parseInt(matchInfo[0].max_maps);
-    if (matchJSON.skip_veto && matchInfo[0].map_sides)
-      matchJSON.map_sides = matchInfo[0].map_sides.split(",");
-    sql = "SELECT * FROM team WHERE id = ?";
-    const team1Data: RowDataPacket[] = await db.query(sql, [matchInfo[0].team1_id]) as any;
-    const team2Data: RowDataPacket[] = await db.query(sql, [matchInfo[0].team2_id]) as any;
-
-    matchJSON.team1 = JSON.parse(
-      await build_team_dict(team1Data[0] as TeamData, 1, matchInfo[0] as MatchData)
+      match.api_key
     );
-    matchJSON.team2 = JSON.parse(
-      await build_team_dict(team2Data[0] as TeamData, 2, matchInfo[0] as MatchData)
-    );
-    sql = "SELECT * FROM match_cvar WHERE match_id = ?";
-    matchCvars = await db.query(sql, [matchID]);
-    //XXX: Possibly breaking JSON with quotes only?
-    matchCvars.forEach((row) => {
-      matchJSON.cvars[row.cvar_name] = row.cvar_value;
-    });
-    sql = "SELECT * FROM match_spectator WHERE match_id=?";
-    matchSpecs = await db.query(sql, [matchID]);
-    let newSpecs: { [key: string]: any } = [];
-    matchSpecs.forEach((row) => {
-      newSpecs[row.auth] = row.spectator_name == null ? "" : row.spectator_name;
-    });
-    if (Object.keys(newSpecs).length > 0)
-      matchJSON.spectators.players = newSpecs;
-    res.json(matchJSON);
+    res.json(matchConfig);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    if (err instanceof MatchConfigError) {
+      res.status(422).json({ message: err.message });
+      return;
+    }
+    next(err);
   }
 });
 
@@ -1645,56 +1584,5 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
     }
   }
 });
-
-/** Builds the team dictionary.
- * @function
- * @memberof module:routes/matches/
- * @param {Object} team - The team object that is used to built the player dictionary.
- * @param {number} teamNumber - Which team to provide for the match title.
- * @param {Object} matchData - The data that contains the match to get the team string and scores.
- */
-async function build_team_dict(team: TeamData, teamNumber: number, matchData: MatchData) {
-  let sql: string =
-    "SELECT auth, name, coach FROM team_auth_names WHERE team_id = ? ORDER BY captain DESC";
-  const playerAuths: RowDataPacket[] = await db.query(sql, [team.id]);
-  let normalizedAuths: { [key: string]: any } = {};
-  let normalizedCoachAuths: { [key: string]: any } = {};
-  for (let i = 0; i < playerAuths.length; i++) {
-    const key = playerAuths[i].auth;
-    if (playerAuths[i].coach) {
-      if (playerAuths[i].name == "") normalizedCoachAuths[key] = "";
-      else normalizedCoachAuths[key] = playerAuths[i].name;
-    } else {
-      if (playerAuths[i].name == "") normalizedAuths[key] = "";
-      else normalizedAuths[key] = playerAuths[i].name;
-    }
-  }
-  let teamData: TeamData = {
-    id: team.id?.toString(),
-    name: team.name,
-    tag: team.tag,
-    flag: team.flag != null ? team.flag.toUpperCase() : "",
-    logo: team.logo,
-    players: normalizedAuths,
-    coaches:
-      Object.keys(normalizedCoachAuths).length == 0
-        ? null
-        : normalizedCoachAuths,
-    series_score:
-      teamNumber === 1
-        ? matchData.team1_series_score
-        : matchData.team2_series_score,
-    matchtext:
-      matchData.max_maps == 1
-        ? teamNumber === 1
-          ? matchData.team1_string
-          : matchData.team2_string
-        : null
-  };
-  for (let key in teamData) {
-    if (teamData[key] === null) delete teamData[key];
-  }
-  return JSON.stringify(teamData);
-}
 
 export default router;

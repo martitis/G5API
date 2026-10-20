@@ -19,6 +19,7 @@ import { AccessMessage } from "../../types/mapstats/AccessMessage.js";
 import { RowDataPacket } from "mysql2";
 import { MapStats } from "../../types/mapstats/MapStats.js";
 import { MatchData } from "../../types/matches/MatchData.js";
+import GlobalEmitter from "../../utility/emitter.js";
 
 /**
  * @swagger
@@ -105,6 +106,7 @@ router.post(
           start_time: new Date().toISOString().slice(0, 19).replace("T", " "),
           end_time: new Date().toISOString().slice(0, 19).replace("T", " "),
           winner: teamIdWinner,
+          forfeit: 1,
         };
         if (!mapStat.length) {
           mapStatSql = "INSERT map_stats SET ?";
@@ -134,14 +136,17 @@ router.post(
               !mapStat.length ? mapStatId.insertId : mapStat[0].id,
               matchRow[0].team1_id,
               matchRow[0].team2_id,
-              teamIdWinner == 1 ? matchRow[0].team1_id : matchRow[0].team2_id
+              teamIdWinner
             );
         }
-        let serverUpdate: GameServer = await getGameServer(req.params.match_id);
-        if (!serverUpdate.endGet5Match()) {
-          console.log(
-            "Error attempting to stop match on game server side. Will continue."
-          );
+        if (matchRow[0].server_id != null) {
+          let serverUpdate: GameServer = await getGameServer(req.params.match_id);
+          // Ends the series on the server with the forfeit winner announced.
+          if (!(await serverUpdate.endGet5Match(req.params.winner_id == "1" ? "team1" : "team2"))) {
+            console.log(
+              "Error attempting to stop match on game server side. Will continue."
+            );
+          }
         }
         res.json({ message: "Match has been forfeitted successfully." });
         return;
@@ -258,7 +263,7 @@ router.post(
         // Let the server cancel the match first, or attempt to?
         if (matchRow[0].server_id != null) {
           let serverUpdate: GameServer = await getGameServer(req.params.match_id);
-          if (!serverUpdate.endGet5Match()) {
+          if (!(await serverUpdate.endGet5Match())) {
             console.log(
               "Error attempting to stop match on game server side. Will continue."
             );
@@ -324,55 +329,40 @@ router.post(
           currentMatchInfo,
           [req.params.match_id]
         );
-        let mapStatSql: string =
-          "SELECT id FROM map_stats WHERE match_id=?";
-        const mapStat: RowDataPacket[] = await db.query(mapStatSql, [
-          req.params.match_id,
-        ]);
-        let playerStatSql: string =
-          "SELECT id FROM player_stats WHERE match_id=?";
-        const playerStats: RowDataPacket[] = await db.query(playerStatSql, [
-          req.params.match_id,
-        ]);
-        let vetoSql: string =
-          "SELECT id FROM veto WHERE match_id=?";
-        const vetoData: RowDataPacket[] = await db.query(vetoSql, [
-          req.params.match_id,
-        ]);
-        let matchUpdateStmt: MatchData = {
+        if (matchRow[0].server_id == null) {
+          res.status(412).json({ message: "Match has no server to restart on." });
+          return;
+        }
+        let matchUpdateStmt: { [key: string]: any } = {
           start_time: new Date().toISOString().slice(0, 19).replace("T", " "),
           cancelled: 0,
-          end_time: null
+          end_time: null,
+          winner: null,
+          team1_score: 0,
+          team2_score: 0,
+          team1_series_score: 0,
+          team2_series_score: 0
         };
-        if (mapStat.length) {
-          mapStatSql = "DELETE FROM map_stats WHERE match_id = ?";
-          await db.query(mapStatSql, [req.params.match_id]);
-        }
-        if (playerStats.length) {
-          playerStatSql = "DELETE FROM player_stats WHERE match_id = ?";
-          await db.query(playerStatSql, [req.params.match_id]);
-        }
-        if (vetoData.length) {
-          vetoSql = "DELETE FROM veto WHERE match_id = ?";
-          await db.query(vetoSql, [req.params.match_id]);
-        }
-        // Let the server cancel the match first, or attempt to?
-        if (matchRow[0].server_id != null) {
-          let serverUpdate: GameServer = await getGameServer(req.params.match_id);
-          if (!await serverUpdate.endGet5Match()) {
-            console.log(
-              "Error attempting to stop match on game server side. Will continue."
-            );
-          }
-          await serverUpdate.prepareGet5Match(
-            Utils.apiUrl("/matches/" + req.params.match_id + "/config"),
-            matchRow[0].api_key
+        let serverUpdate: GameServer = await getGameServer(req.params.match_id);
+        if (!(await serverUpdate.endGet5Match())) {
+          console.log(
+            "Error attempting to stop match on game server side. Will continue."
           );
-          let matchSql: string = "UPDATE `match` SET ? WHERE id=?";
-          await db.query(matchSql, [
-            matchUpdateStmt,
-            req.params.match_id,
-          ]);
+        }
+        // Start from a clean slate: every map, stat, kill, bomb, pause and veto of the previous attempt.
+        await Utils.deleteMatchProgress(req.params.match_id);
+        await db.query("UPDATE `match` SET ? WHERE id=?", [matchUpdateStmt, req.params.match_id]);
+        await db.query("UPDATE game_server SET in_use = 1 WHERE id = ?", [matchRow[0].server_id]);
+        GlobalEmitter.emit("matchUpdate");
+        const loaded: boolean = await serverUpdate.prepareGet5Match(
+          Utils.apiUrl("/matches/" + req.params.match_id + "/config"),
+          matchRow[0].api_key
+        );
+        if (!loaded && process.env.NODE_ENV !== "test") {
+          res.status(500).json({
+            message: "Match data was reset, but MatchZy did not load the match. Check the game server's MatchZy log."
+          });
+          return;
         }
         res.json({ message: "Match has been restarted successfully." });
         return;

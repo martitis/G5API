@@ -61,7 +61,12 @@ describe("Test the matches routes", () => {
     return request.get("/matches/1/config")
       .expect(200)
       .expect((result) => {
-        expect(result.body.cvars.get5_web_api_url).toMatch(/http/);
+        expect(result.body.cvars.matchzy_remote_log_url).toMatch(/http.*\/v2$/);
+        expect(result.body.cvars.get5_check_auths).toBeUndefined();
+        expect(result.body.cvars.mp_autobalanceteams).toBe("1");
+        expect(result.body.maplist).toEqual(["de_dust2", "de_cache", "de_mirage"]);
+        expect(result.body.matchid).toBe(1);
+        expect(result.body.spectators.players).toEqual({});
       });
   });
   it('Should get the first match.', () => {

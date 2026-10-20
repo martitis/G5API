@@ -585,6 +585,25 @@ class Utils {
   }
 
   /**
+   * Deletes everything a match produced while being played (maps, stats, kill feed, bombs, pauses, vetoes),
+   * children before parents so foreign keys hold. The match row itself is kept.
+   * @param {String|Number} matchId The match ID.
+   */
+  static async deleteMatchProgress(matchId: string | number): Promise<void> {
+    for (const table of [
+      "player_stat_extras",
+      "match_bomb_plants",
+      "match_pause",
+      "player_stats",
+      "veto_side",
+      "veto",
+      "map_stats"
+    ]) {
+      await db.query(`DELETE FROM ${table} WHERE match_id = ?`, [matchId]);
+    }
+  }
+
+  /**
    * Performs a check on the server to see if the provided API key is correct, and if the match has not been finalized.
    * @param {String} providedKey The API key sent by a user/game server.
    * @param {String|Number} matchId The match ID sent by the user/game server.

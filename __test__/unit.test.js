@@ -3,8 +3,102 @@ import { agent } from "supertest";
 import app from "../app.js";
 import { parseBackupList, safeRconArg, RconArgumentError } from "../src/utility/serverrcon.js";
 import Utils from "../src/utility/utils.js";
+import { buildMatchConfig, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
 
 const request = agent(app);
+
+describe("buildMatchConfig (MatchZy match config)", () => {
+  const baseInput = (matchOverrides = {}) => ({
+    match: {
+      id: 7,
+      max_maps: 3,
+      veto_mappool: "de_mirage de_inferno, de_nuke de_ancient de_anubis",
+      skip_veto: 0,
+      side_type: "standard",
+      veto_first: "team2",
+      players_per_team: null,
+      min_player_ready: null,
+      wingman: 0,
+      team1_id: 1,
+      team2_id: 2,
+      team1_series_score: 1,
+      team2_series_score: 0,
+      ...matchOverrides
+    },
+    team1: {
+      team: { id: 1, name: "Alpha", tag: "ALP", flag: "lt", logo: null },
+      auths: [
+        { auth: "76561198000000001", name: "Captain", coach: 0 },
+        { auth: "76561198000000002", name: "", coach: 1 },
+        { auth: "not-a-steam-id", name: "Broken", coach: 0 }
+      ]
+    },
+    team2: { team: { id: 2, name: "Bravo" }, auths: [{ auth: "76561198000000003", name: null }] },
+    cvars: [
+      { cvar_name: "mp_maxrounds", cvar_value: 24 },
+      { cvar_name: "matchzy_remote_log_url", cvar_value: "http://evil.example" }
+    ],
+    spectators: [{ auth: "76561198000000009", spectator_name: "Caster" }],
+    uploadDemos: true
+  });
+
+  it("produces the fields MatchZy requires", () => {
+    const config = buildMatchConfig(baseInput(), "secret-key");
+    expect(config.matchid).toBe(7);
+    expect(config.num_maps).toBe(3);
+    expect(config.maplist).toEqual(["de_mirage", "de_inferno", "de_nuke", "de_ancient", "de_anubis"]);
+    expect(config.skip_veto).toBe(false);
+    expect(config.clinch_series).toBe(true);
+    expect(config.veto_first).toBe("team2");
+    expect(config.team1.name).toBe("Alpha");
+    expect(config.team1.id).toBe("1");
+    expect(config.team1.flag).toBe("LT");
+    expect(config.team1.series_score).toBe(1);
+  });
+
+  it("sends spectators and lists coaches as players", () => {
+    const config = buildMatchConfig(baseInput(), "k");
+    expect(config.spectators.players).toEqual({ "76561198000000009": "Caster" });
+    expect(config.team1.players).toEqual({ "76561198000000001": "Captain", "76561198000000002": "" });
+    expect(config.team2.players).toEqual({ "76561198000000003": "" });
+  });
+
+  it("defaults the per-team ready count to the team size", () => {
+    expect(buildMatchConfig(baseInput(), "k").min_players_to_ready).toBe(5);
+    const wingman = buildMatchConfig(baseInput({ wingman: 1 }), "k");
+    expect(wingman.players_per_team).toBe(2);
+    expect(wingman.min_players_to_ready).toBe(2);
+    expect(buildMatchConfig(baseInput({ min_player_ready: 9 }), "k").min_players_to_ready).toBe(5);
+  });
+
+  it("only sends a complete, valid map_sides list", () => {
+    expect(buildMatchConfig(baseInput({ map_sides: "team1_ct,knife" }), "k").map_sides).toBeUndefined();
+    expect(buildMatchConfig(baseInput({ map_sides: "team1_ct,bogus,knife" }), "k").map_sides).toBeUndefined();
+    expect(buildMatchConfig(baseInput({ map_sides: "team1_ct, team2_t, knife" }), "k").map_sides).toEqual([
+      "team1_ct",
+      "team2_t",
+      "knife"
+    ]);
+  });
+
+  it("uses matchzy_* remote settings that user cvars can't override", () => {
+    const config = buildMatchConfig(baseInput(), "secret-key");
+    expect(config.cvars.mp_maxrounds).toBe("24");
+    expect(config.cvars.matchzy_remote_log_url).toMatch(/\/v2$/);
+    expect(config.cvars.matchzy_remote_log_header_value).toBe("secret-key");
+    expect(config.cvars.matchzy_demo_upload_url).toMatch(/\/v2\/demo$/);
+    expect(config.cvars.matchzy_remote_backup_url).toMatch(/\/v2\/backup$/);
+    expect(Object.keys(config.cvars).some((name) => name.startsWith("get5_"))).toBe(false);
+    const noDemos = buildMatchConfig({ ...baseInput(), uploadDemos: false }, "k");
+    expect(noDemos.cvars.matchzy_demo_upload_url).toBeUndefined();
+  });
+
+  it("refuses matches MatchZy could not load", () => {
+    expect(() => buildMatchConfig(baseInput({ veto_mappool: null }), "k")).toThrow(MatchConfigError);
+    expect(() => buildMatchConfig(baseInput({ veto_mappool: "de_mirage" }), "k")).toThrow(MatchConfigError);
+    expect(parseMapPool("de_dust2, de_cache,de_mirage")).toEqual(["de_dust2", "de_cache", "de_mirage"]);
+  });
+});
 
 describe("Routes refuse anonymous and malformed requests before touching the database", () => {
   it.each([
