@@ -38,6 +38,7 @@ import { Get5_OnPlayerDeath } from "../../types/map_flow/Get5_OnPlayerDeath.js";
 import { Get5_OnBombEvent } from "../../types/map_flow/Get5_OnBombEvent.js";
 import { Get5_OnRoundStart } from "../../types/map_flow/Get5_OnRoundStart.js";
 import Utils from "../../utility/utils.js";
+import GlobalEmitter from "../../utility/emitter.js";
 import { Get5_OnRoundEnd } from "../../types/map_flow/Get5_OnRoundEnd.js";
 
 /** Basic Rate limiter.
@@ -47,19 +48,8 @@ const basicRateLimit = rateLimit({
   windowMs: 30 * 30 * 1000, // 15 mins per 30k requests seems like a fair amount.
   max: 30000,
   message: "Too many requests from this IP. Please try again in 15 minutes.",
-  keyGenerator: async (req) => {
-    try {
-      const apiKey: string | undefined = req.get("Authorization");
-      const dbApiKey: RowDataPacket[] = await db.query(
-        "SELECT api_key FROM `match` WHERE api_key = ?",
-        [apiKey]
-      );
-      if (dbApiKey[0].api_key) return dbApiKey[0].api_key;
-      else return req.ip;
-    } catch (err) {
-      return req.ip;
-    }
-  }
+  // One bucket per match key (each game server sends its own); no DB lookup per request.
+  keyGenerator: (req) => req.get("Authorization") || req.ip || "unknown"
 });
 
 /**
@@ -109,7 +99,13 @@ router.post("/", basicRateLimit, async (req, res) => {
 
     const matchApiCheck: number = await Utils.checkApiKey(apiKey, matchId);
     if (eventType.event == "demo_upload_ended") {
-      // Ignore demo_upload_ended event.
+      // The demo itself arrives on /v2/demo; only failures are worth noting here.
+      const demoEvent = req.body as { success?: boolean; filename?: string; map_number?: number };
+      if (demoEvent.success === false) {
+        console.error(
+          `MatchZy failed to upload demo ${demoEvent.filename ?? ""} (match ${matchId}, map ${demoEvent.map_number}).`
+        );
+      }
       return res.status(200).send({message: "Success"});
     } else if (eventType.event == "series_end") {
       // let forfeit: number = event.
@@ -193,6 +189,15 @@ router.post("/", basicRateLimit, async (req, res) => {
           req.body as Get5_OnMatchPausedUnpaused,
           res
         );
+        break;
+      // Informational events: the match row already holds the series setup, and
+      // connections are visible on the server itself. Acknowledge so MatchZy logs no error.
+      case "series_start":
+        GlobalEmitter.emit("matchUpdate");
+        res.status(200).send({ message: "Success" });
+        break;
+      case "player_disconnect":
+        res.status(200).send({ message: "Success" });
         break;
       default:
         res.status(202).send({message: `Event ${eventType.event} is not implemented.`});

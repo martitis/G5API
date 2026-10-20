@@ -10,7 +10,8 @@ export interface Get5_OnPlayerDeath {
   round_number: number
   round_time: number
   player: Get5_Player
-  weapon: Get5_Weapon
+  // MatchZy sends null for world damage, the bomb and suicides.
+  weapon: Get5_Weapon | null
   bomb: boolean
   headshot: boolean
   thru_smoke: boolean
@@ -19,6 +20,6 @@ export interface Get5_OnPlayerDeath {
   no_scope: boolean
   suicide: boolean
   friendly_fire: boolean
-  attacker: Get5_Attacker
-  assist: Get5_Assist
+  attacker: Get5_Attacker | null
+  assist: Get5_Assist | null
 }
