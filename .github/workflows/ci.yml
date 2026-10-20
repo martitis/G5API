@@ -10,8 +10,8 @@ jobs:
     name: Build and lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: yarn
@@ -35,8 +35,8 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: yarn
@@ -51,4 +51,13 @@ jobs:
           c.test.password = "root";
           fs.writeFileSync("config/test.json", JSON.stringify(c, null, 2));
           '
-      - run: yarn test
+      - name: yarn test
+        run: |
+          set -o pipefail
+          yarn test 2>&1 | tee test.log
+      # Job logs need a GitHub login; annotations are visible to anyone, including the API.
+      - name: Publish test log tail
+        if: failure()
+        run: |
+          tail -n 80 test.log | sed 's/%/%25/g; s/\r//g' | awk 'BEGIN{ORS="%0A"} {print}' > tail.txt
+          echo "::error title=yarn test (last 80 lines)::$(cat tail.txt)"
