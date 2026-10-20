@@ -12,7 +12,6 @@ export interface PlayerInfo {
     attacker_side: string,
     weapon: string,
     bomb: string,
-    deaths: number,
     headshot: boolean,
     thru_smoke: boolean,
     attacker_blind: boolean,

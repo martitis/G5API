@@ -58,7 +58,7 @@ jobs:
           {
             yarn build && yarn test:unit && yarn test:setup-user && yarn migrate-drop-test && yarn migrate-create-test && yarn migrate-test-upgrade || exit 1
             failed=""
-            for suite in user gameservers teams matches seasons vetoes mapstats playerstats vetosides maplists; do
+            for suite in user gameservers teams matches seasons vetoes mapstats playerstats vetosides maplists leaderboard; do
               yarn "test:$suite" || failed="$failed $suite"
             done
             if [ -n "$failed" ]; then echo "Failed suites:$failed"; exit 1; fi

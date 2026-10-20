@@ -278,13 +278,18 @@ router.get("/:match_id/:map_number/stream", async (req, res, next) => {
     res.flushHeaders();
     mapstats = mapstats.map(v => Object.assign({}, v));
     let mapStatString: string = `event: mapstats\ndata: ${JSON.stringify(mapstats[0])}\n\n`
-    
+
     // Need to name the function in order to remove it!
     const mapStatStreamStats: (() => Promise<void>) = async () => {
-      mapstats = await db.query(sql, [matchID]);
-      mapstats = mapstats.map(v => Object.assign({}, v));
-      mapStatString = `event: mapstats\ndata: ${JSON.stringify(mapstats)}\n\n`
-      res.write(mapStatString);
+      try {
+        // Same shape as the first message: the single map's stats.
+        mapstats = await db.query(sql, [matchID, mapID]);
+        mapstats = mapstats.map(v => Object.assign({}, v));
+        mapStatString = `event: mapstats\ndata: ${JSON.stringify(mapstats[0])}\n\n`
+        res.write(mapStatString);
+      } catch (err) {
+        console.error(err);
+      }
     };
 
     GlobalEmitter.on("mapStatUpdate", mapStatStreamStats);

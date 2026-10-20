@@ -176,14 +176,10 @@ import { Response } from "express-serve-static-core";
  router.get("/:steam_id", async (req, res, next) => {
   try {
     let steamID: string = req.params.steam_id;
-    let sql: string = "SELECT id FROM player_stats WHERE steam_id = ?"
-    let extraSql: string = "SELECT * FROM player_stat_extras where id IN (?)";
-    const playerIds: RowDataPacket[] = await db.query(sql, [steamID]);
-    if (!playerIds.length) {
-      res.status(404).json({ message: "No stats found for player " + steamID });
-      return;
-    }
-    const extrastats: RowDataPacket[] = await db.query(extraSql, [playerIds]);
+    // Every kill the player was part of, as the victim or the attacker.
+    let extraSql: string =
+      "SELECT * FROM player_stat_extras WHERE player_steam_id = ? OR attacker_steam_id = ?";
+    const extrastats: RowDataPacket[] = await db.query(extraSql, [steamID, steamID]);
     if (!extrastats.length) {
       res.status(404).json({ message: "No extra stats found for player " + steamID });
       return;
@@ -521,7 +517,6 @@ import { Response } from "express-serve-static-core";
         attacker_side: req.body[0].attacker_side,
         weapon: req.body[0].weapon,
         bomb: req.body[0].bomb,
-        deaths: req.body[0].deaths,
         headshot: req.body[0].headshot,
         thru_smoke: req.body[0].thru_smoke,
         attacker_blind: req.body[0].attacker_blind,
@@ -628,7 +623,6 @@ import { Response } from "express-serve-static-core";
         attacker_side: req.body[0].attacker_side,
         weapon: req.body[0].weapon,
         bomb: req.body[0].bomb,
-        deaths: req.body[0].deaths,
         headshot: req.body[0].headshot,
         thru_smoke: req.body[0].thru_smoke,
         attacker_blind: req.body[0].attacker_blind,
@@ -650,18 +644,18 @@ import { Response } from "express-serve-static-core";
         return;
       }
       let sql: string =
-        "UPDATE player_stat_extras SET ? WHERE map_id = ? AND match_id = ? AND player_stat_id = ?";
+        "UPDATE player_stat_extras SET ? WHERE map_id = ? AND match_id = ? AND id = ?";
       const updatedPlayerStats: RowDataPacket[] = await db.query(sql, [
         updateStmt,
         req.body[0].map_id,
         req.body[0].match_id,
-        req.body[0].player_stat_id,
+        req.body[0].id,
       ]);
       //@ts-ignore
       if (updatedPlayerStats.affectedRows > 0) {
         res.json({ message: "Extra Player Stats were updated successfully!" });
       } else {
-        sql = "INSERT INTO player_stats SET ?";
+        sql = "INSERT INTO player_stat_extras SET ?";
         // Update values to include match/map/steam_id.
         updateStmt.player_steam_id = req.body[0].player_steam_id;
         updateStmt.map_id = req.body[0].map_id;
@@ -775,33 +769,16 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
 * @param {object} [res] - The response to send back to the client.
 */
 const getIdFromMatches = async (steamId: string, isPug: boolean | number, seasonId: number | null, res: Response<any, Record<string, any>, number>) => {
-    let pugSql: string = 
-      `SELECT id
-        FROM player_stats 
-        WHERE steam_id = ?
-        AND match_id IN (
-        SELECT id FROM \`match\`
-        WHERE cancelled = 0
-        AND is_pug = ?
-      )`;
-    if (seasonId) {
-      pugSql = 
-      `SELECT id
-      FROM player_stats 
-      WHERE steam_id = ?
-      AND match_id IN (
-        SELECT id FROM \`match\`
-        WHERE cancelled = 0
-        AND season_id = ?
-      )`;
-    }
-    let playerIds: RowDataPacket[] = await db.query(pugSql, [steamId, isPug, seasonId]);
-    let extraSql: string = "SELECT * FROM player_stat_extras where id IN (?)";
-    if (!playerIds.length) {
-      res.status(404).json({ message: "No stats found for player " + steamId });
-      return;
-    }
-    const extrastats: RowDataPacket[] = await db.query(extraSql, [playerIds]);
+    // Every kill the player was part of (victim or attacker) in non-cancelled matches of the season, or PUG/official.
+    const extraSql: string =
+      "SELECT pse.* FROM player_stat_extras pse JOIN `match` m ON m.id = pse.match_id " +
+      "WHERE (pse.player_steam_id = ? OR pse.attacker_steam_id = ?) AND m.cancelled = 0 AND " +
+      (seasonId ? "m.season_id = ?" : "m.is_pug = ?");
+    const extrastats: RowDataPacket[] = await db.query(extraSql, [
+      steamId,
+      steamId,
+      seasonId ? seasonId : isPug ? 1 : 0
+    ]);
     if (!extrastats.length) {
       res.status(404).json({ message: "No extra stats found for player " + steamId });
       return;

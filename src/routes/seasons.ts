@@ -86,20 +86,14 @@ import { SeasonCvarObject } from "../types/seasons/SeasonCvarObject.js";
 router.get("/", async (req, res, next) => {
   try {
     let sql: string =
-      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, " +
-      "CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\": \"',sc.cvar_value,'\"')),'}') as cvars " +
-      "FROM season s LEFT OUTER JOIN season_cvar sc " +
-      "ON s.id = sc.season_id " +
-      "GROUP BY s.id, s.user_id, s.name, s.start_date, s.end_date";
+      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date " +
+      "FROM season s ";
     let seasons: RowDataPacket[] = await db.query(sql);
     if (!seasons.length) {
       res.status(404).json({ message: "No seasons found." });
       return;
     }
-    for (let row in seasons) {
-      if (seasons[row].cvars == null) delete seasons[row].cvars;
-      else seasons[row].cvars = JSON.parse(seasons[row].cvars);
-    }
+    await attachSeasonCvars(seasons);
     res.json({ seasons });
   } catch (err) {
     console.error(err);
@@ -134,21 +128,15 @@ router.get("/", async (req, res, next) => {
 router.get("/myseasons", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     let sql: string =
-      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, " +
-      "CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\"',': \"',sc.cvar_value,'\"')),'}') as cvars " +
-      "FROM season s LEFT OUTER JOIN season_cvar sc " +
-      "ON s.id = sc.season_id " +
-      "WHERE s.user_id = ? " +
-      "GROUP BY s.id, s.user_id, s.name, s.start_date, s.end_date";
+      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date " +
+      "FROM season s " +
+      "WHERE s.user_id = ? ";
     let seasons: RowDataPacket[] = await db.query(sql, [req.user?.id]);
     if (!seasons.length) {
       res.status(404).json({ message: "No seasons found." });
       return;
     }
-    for (let row in seasons) {
-      if (seasons[row].cvars == null) delete seasons[row].cvars;
-      else seasons[row].cvars = JSON.parse(seasons[row].cvars);
-    }
+    await attachSeasonCvars(seasons);
     res.json({ seasons });
   } catch (err) {
     console.error(err);
@@ -190,34 +178,25 @@ router.get(
       // Check if super admin, if they are use this query.
       if (req.user && Utils.superAdminCheck(req.user)) {
         sql =
-          "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, " +
-          "CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\"',': \"',sc.cvar_value,'\"')),'}') as cvars " +
-          "FROM season s LEFT OUTER JOIN season_cvar sc " +
-          "ON s.id = sc.season_id " +
+          "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date " +
+          "FROM season s " +
           "WHERE s.end_date >= CURDATE() " +
-          "OR s.end_date IS NULL " +
-          "GROUP BY s.id, s.user_id, s.name, s.start_date, s.end_date";
+          "OR s.end_date IS NULL ";
         seasons = await db.query(sql, [req.user.id]);
       } else {
         sql =
-          "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, " +
-          "CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\"',': \"',sc.cvar_value,'\"')),'}') as cvars " +
-          "FROM season s LEFT OUTER JOIN season_cvar sc " +
-          "ON s.id = sc.season_id " +
+          "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date " +
+          "FROM season s " +
           "WHERE s.user_id = ? " +
           "AND (s.end_date >= CURDATE() " +
-          "OR s.end_date IS NULL) " +
-          "GROUP BY s.id, s.user_id, s.name, s.start_date, s.end_date";
+          "OR s.end_date IS NULL) ";
         seasons = await db.query(sql, [req.user?.id]);
       }
       if (!seasons.length) {
         res.status(404).json({ message: "No seasons found." });
         return;
       }
-      for (let row in seasons) {
-        if (seasons[row].cvars == null) delete seasons[row].cvars;
-        else seasons[row].cvars = JSON.parse(seasons[row].cvars);
-      }
+      await attachSeasonCvars(seasons);
       res.json({ seasons });
     } catch (err) {
       console.error(err);
@@ -258,22 +237,15 @@ router.get(
   Utils.ensureAuthenticated,
   async (req, res, next) => {
     try {
-      let sql: string =
-        "SELECT CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\"',': \"',sc.cvar_value,'\"')),'}') as cvars " +
-        "FROM season_cvar sc " +
-        "WHERE sc.season_id = ? ";
-      let cvar: RowDataPacket[] = await db.query(sql, [req.params.season_id]);
-      if (cvar[0].cvars == null) {
+      const season: RowDataPacket[] = [{ id: parseInt(req.params.season_id) }] as RowDataPacket[];
+      await attachSeasonCvars(season);
+      if (season[0].cvars == null) {
         res.status(404).json({
           message: "No cvars found for season id " + req.params.season_id + ".",
         });
         return;
       }
-      for (let row in cvar) {
-        if (cvar[row].cvars == null) delete cvar[row].cvars;
-        else cvar[row].cvars = JSON.parse(cvar[row].cvars);
-      }
-      res.json(cvar[0]);
+      res.json({ cvars: season[0].cvars });
     } catch (err) {
       res.status(500).json({ message: (err as Error).toString() });
     }
@@ -655,5 +627,27 @@ router.post("/challonge", Utils.ensureAuthenticated, async (req, res, next) => {
     res.status(500).json({ message: (err as Error).toString() });
   }
 });
+
+/** Adds each season's default cvars as a { name: value } object (no "cvars" key when it has none).
+ * Built in code rather than with GROUP_CONCAT, which broke on quotes and the 1024 character limit.
+ * @function
+ * @memberof module:routes/seasons
+ * @param {RowDataPacket[]} seasons - Season rows with an id.
+ */
+async function attachSeasonCvars(seasons: RowDataPacket[]): Promise<void> {
+  if (!seasons.length) return;
+  const cvarRows: RowDataPacket[] = await db.query(
+    "SELECT season_id, cvar_name, cvar_value FROM season_cvar WHERE season_id IN (?)",
+    [seasons.map((season) => season.id)]
+  );
+  for (const season of seasons) {
+    const cvars: { [name: string]: string } = {};
+    for (const row of cvarRows) {
+      if (row.season_id == season.id) cvars[row.cvar_name] = row.cvar_value;
+    }
+    if (Object.keys(cvars).length > 0) season.cvars = cvars;
+    else delete season.cvars;
+  }
+}
 
 export default router;

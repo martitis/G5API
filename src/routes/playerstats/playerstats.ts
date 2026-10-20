@@ -947,7 +947,8 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
 */
 const getPlayerStats: any = async (steamId: string, seasonId: number | null = null, pug: boolean = false) => {
   let playerStatSql =
-    `SELECT  steam_id, name, sum(kills) as kills,
+    `SELECT  MAX(steam_id) AS steam_id,
+    SUBSTRING_INDEX(GROUP_CONCAT(name ORDER BY id DESC SEPARATOR '\n'), '\n', 1) AS name, sum(kills) as kills,
     sum(deaths) as deaths, sum(assists) as assists, sum(k1) as k1,
     sum(k2) as k2, sum(k3) as k3,
     sum(k4) as k4, sum(k5) as k5, sum(v1) as v1,
@@ -965,7 +966,8 @@ const getPlayerStats: any = async (steamId: string, seasonId: number | null = nu
         AND     is_pug = ?
     )`;
   let playerStatSqlSeasons =
-    `SELECT  steam_id, name, sum(kills) as kills,
+    `SELECT  MAX(steam_id) AS steam_id,
+    SUBSTRING_INDEX(GROUP_CONCAT(name ORDER BY id DESC SEPARATOR '\n'), '\n', 1) AS name, sum(kills) as kills,
     sum(deaths) as deaths, sum(assists) as assists, sum(k1) as k1,
     sum(k2) as k2, sum(k3) as k3,
     sum(k4) as k4, sum(k5) as k5, sum(v1) as v1,
@@ -983,17 +985,17 @@ const getPlayerStats: any = async (steamId: string, seasonId: number | null = nu
         AND season_id = ?
         AND     is_pug = ?
     )`;
-  let winSql = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
+  let winSql = `SELECT COUNT(DISTINCT mtch.id) AS wins FROM \`match\` mtch
     JOIN player_stats pstat ON mtch.id = pstat.match_id 
     WHERE pstat.team_id = mtch.winner and pstat.steam_id = ?
     AND is_pug = ?`;
   if (pug) {
-    winSql = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
+    winSql = `SELECT COUNT(DISTINCT mtch.id) AS wins FROM \`match\` mtch
     JOIN player_stats pstat ON mtch.id = pstat.match_id 
     WHERE pstat.steam_id = ? AND pstat.winner = 1 
     AND is_pug = ?`;
   }
-  let winSqlSeasons = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
+  let winSqlSeasons = `SELECT COUNT(DISTINCT mtch.id) AS wins FROM \`match\` mtch
     JOIN player_stats pstat ON mtch.id = pstat.match_id 
     WHERE pstat.team_id = mtch.winner and pstat.steam_id = ?
     AND mtch.season_id = ? AND is_pug = ?`;
@@ -1002,7 +1004,8 @@ const getPlayerStats: any = async (steamId: string, seasonId: number | null = nu
   if (!seasonId) playerstats = await db.query(playerStatSql, [steamId, pug]);
   else playerstats = await db.query(playerStatSqlSeasons, [steamId, seasonId, pug]);
 
-  if (!playerstats.length) return;
+  // An aggregate without GROUP BY returns one all-NULL row when the player has no stats.
+  if (!playerstats.length || playerstats[0].steam_id == null) return;
 
   if (!seasonId) numWins = await db.query(winSql, [steamId, pug]);
   else
@@ -1017,7 +1020,7 @@ const getPlayerStats: any = async (steamId: string, seasonId: number | null = nu
     name:
       playerstats[0].name == null
         ? await Utils.getSteamName(playerstats[0].steam_id)
-        : playerstats[0].name.replace('/"/g', '\\"'),
+        : playerstats[0].name,
     kills: parseFloat(playerstats[0].kills),
     deaths: parseFloat(playerstats[0].deaths),
     assists: parseFloat(playerstats[0].assists),
