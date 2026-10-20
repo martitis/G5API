@@ -17,7 +17,7 @@ The line numbers are from the 2026-10-20 analysis and will drift, so search for 
 - [x] `yarn build` passes. Fixed the merge's TS errors (Challonge JSON typed in `teams.ts`; `req.user!` in `matches.ts` mymatches). Removed the bogus `tsc` npm package, which shadowed TypeScript's `tsc` binary so `yarn build` compiled nothing
 - [x] The dev migration's duplicate `bomb_time_remaining` is fixed (test was already correct). **Not** collapsing the 3 migration folders: db-migrate stores the scope in applied migration names, so live DBs would re-run everything
 - [x] ESLint 10 + typescript-eslint (type-aware) + Prettier. Existing violations are warnings with a `--max-warnings` cap (1189). No mass reformat
-- [x] CI `ci.yml` in both repos (G5API: build + lint + MySQL integration tests; G5V: lint cap 34 + build). GHCR image workflows are now manual-only (they pushed to your own GHCR on every push, not upstream's). The G5API test job hasn't run yet; it needs a push to GitHub
+- [x] CI `ci.yml` in both repos (G5API: build + lint + MySQL integration tests; G5V: lint cap 34 + build). GHCR image workflows are now manual-only (they pushed to your own GHCR on every push, not upstream's). The G5API test job now runs every suite and posts failing tests as public annotations; all suites pass as of Phase 1 (they had been failing unnoticed because the old teardown hid failures)
 - [x] `Utils.apiUrl()` used for every URL built from `server.apiURL`
 - [x] Cross-platform scripts (`cross-env`, `scripts/test-admin.mjs`). The jest teardown no longer does `process.exit(0)`, which had hidden failing tests; `--forceExit` is used instead
 - [x] Removed `package-lock.json` (it was out of sync, `npm ci` failed on master, and nothing used it); `yarn.lock` is the only lockfile
@@ -46,7 +46,7 @@ The line numbers are from the 2026-10-20 analysis and will drift, so search for 
 - [x] Logos: PNG signature check; SVGs with scripts, event handlers, foreignObject or external hrefs are rejected; helmet now runs before the static routes (it used to skip logos, demos and backups)
 - [x] Global error handler returns a generic message for 500s; `unhandledRejection` is logged; `src/utility/asyncErrors.ts` forwards async route errors to it (Express 4 patch)
 - [x] Fixed the swapped params in remote-backup server change (`UPDATE match SET server_id…`); the new server is marked in_use
-- [x] `/mymatches` filter is just `user_id = ?`
+- [x] `/mymatches` filter is just `user_id = ?`; both match lists use subqueries for the current map score (the JOIN + GROUP BY returned 500 on MySQL 8)
 - [x] `__test__/unit.test.js` (no DB): parser, sanitizers, cvars, auth/404/upload checks. Run with `yarn test:unit`
 - [ ] **Open:** enforce `private_match` / `public_team` on reads and SSE streams; per-server cvar whitelist; many routes still return `err.toString()` in their own catch blocks (cleanup in Phase 2)
 
