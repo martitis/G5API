@@ -13,7 +13,6 @@ import Utils from "../../utility/utils.js";
 
 import GameServer from "../../utility/serverrcon.js";
 
-import config from "config";
 
 import { existsSync, readdir } from "fs";
 import { AccessMessage } from "../../types/mapstats/AccessMessage.js";
@@ -366,10 +365,7 @@ router.get(
             );
           }
           await serverUpdate.prepareGet5Match(
-            config.get("server.apiURL")  +
-            "/matches/" +
-            req.params.match_id +
-            "/config",
+            Utils.apiUrl("/matches/" + req.params.match_id + "/config"),
             matchRow[0].api_key
           );
           let matchSql: string = "UPDATE `match` SET ? WHERE id=?";
@@ -1203,7 +1199,7 @@ router.post(
         try {
           if (await serverUpdate.isGet5Available()) {
             let rconResponse: string = await serverUpdate.restoreBackupFromURL(
-              config.get("server.apiURL") + `/backups/${req.params.match_id}/${configString}`
+              Utils.apiUrl(`/backups/${req.params.match_id}/${configString}`)
             );
             currentMatchInfo = "UPDATE `match` SET server_id = ? WHERE id = ?";
             await db.query(currentMatchInfo, [req.params.match_id, newServerId]);

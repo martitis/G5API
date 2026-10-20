@@ -102,7 +102,8 @@ module.exports = {
   // projects: undefined,
 
   // Use this configuration option to add custom reporters to Jest
-  // reporters: undefined,
+  // On GitHub Actions, also report failing tests as annotations.
+  reporters: process.env.GITHUB_ACTIONS ? ["default", "github-actions"] : ["default"],
 
   // Automatically reset mock state between every test
   // resetMocks: false,

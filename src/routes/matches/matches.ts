@@ -15,7 +15,6 @@ import Utils from "../../utility/utils.js";
 
 import GameServer from "../../utility/serverrcon.js";
 
-import config from "config";
 
 import GlobalEmitter from "../../utility/emitter.js";
 
@@ -446,7 +445,7 @@ router.get("/mymatches", Utils.ensureAuthenticated, async (req, res, next) => {
       ORDER BY id DESC;
     `;
 
-    const matches: RowDataPacket[] = await db.query(sql, [req.user.id]);
+    const matches: RowDataPacket[] = await db.query(sql, [req.user!.id]);
     if (!matches.length) {
       res.status(404).json({ message: "No matches found." });
       return;
@@ -1016,7 +1015,6 @@ router.get("/:match_id/config", async (req, res, next) => {
     let matchCvars: RowDataPacket[];
     let matchSpecs: RowDataPacket[];
     let apiKey: string | undefined = req.get("Authorization");
-    let apiString: string = config.get("server.apiURL");
     
     const matchInfo: RowDataPacket[] = await db.query(sql, [matchID]);
     if (!matchInfo.length) {
@@ -1064,30 +1062,18 @@ router.get("/:match_id/config", async (req, res, next) => {
         (matchInfo[0].plugin_version == "unknown" ||
           compare(matchInfo[0].plugin_version, "0.13.1", "<"))
           ? {
-              get5_web_api_url: config.get("server.apiURL"),
+              get5_web_api_url: Utils.apiUrl("/"),
               get5_check_auths: matchInfo[0].enforce_teams.toString()
             }
           : {
               get5_check_auths: matchInfo[0].enforce_teams.toString(),
-              get5_remote_log_url: `${
-                apiString.endsWith("/")
-                  ? apiString.concat("v2")
-                  : apiString.concat("/v2")
-              }`,
+              get5_remote_log_url: Utils.apiUrl("/v2"),
               get5_remote_log_header_key: "Authorization",
               get5_remote_log_header_value: apiKey,
-              get5_remote_backup_url: `${
-                apiString.endsWith("/")
-                  ? apiString.concat("v2/backup")
-                  : apiString.concat("/v2/backup")
-              }`,
+              get5_remote_backup_url: Utils.apiUrl("/v2/backup"),
               get5_remote_backup_header_key: "Authorization",
               get5_remote_backup_header_value: apiKey,
-              get5_demo_upload_url: `${
-                apiString.endsWith("/")
-                  ? apiString.concat("v2/demo")
-                  : apiString.concat("/v2/demo")
-              }`,
+              get5_demo_upload_url: Utils.apiUrl("/v2/demo"),
               get5_demo_upload_header_key: "Authorization",
               get5_demo_upload_header_value: apiKey
             },
@@ -1285,10 +1271,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         await db.query(sql, [get5Version, insertMatch.insertId]);
         if (
           !(await newServer.prepareGet5Match(
-            config.get("server.apiURL") +
-              "/matches/" +
-              insertMatch.insertId +
-              "/config",
+            Utils.apiUrl("/matches/" + insertMatch.insertId + "/config"),
             apiKey
           ))
         ) {
@@ -1516,10 +1499,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
             );
             if (
               await newServer.prepareGet5Match(
-                config.get("server.apiURL") +
-                  "/matches/" +
-                  matchRow[0].id +
-                  "/config",
+                Utils.apiUrl("/matches/" + matchRow[0].id + "/config"),
                 matchRow[0].api_key
               )
             ) {

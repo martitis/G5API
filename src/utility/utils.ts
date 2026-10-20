@@ -81,6 +81,19 @@ class Utils {
     }
   }
 
+  /** Builds an absolute URL on the API from server.apiURL, regardless of trailing slashes in the config.
+   * @name apiUrl
+   * @function
+   * @inner
+   * @memberof module:utils
+   * @param {string} path - Path to append, e.g. "/v2/demo".
+   */
+  static apiUrl(path: string = ""): string {
+    let base: string = config.get<string>("server.apiURL").replace(/\/+$/, "");
+    if (!path) return base;
+    return base + "/" + path.replace(/^\/+/, "");
+  }
+
   /** Inner function - Supports encryption and decryption for the database keys to get server RCON passwords.
    * @name decrypt
    * @function
