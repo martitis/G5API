@@ -79,9 +79,19 @@ describe("Test the game server routes.", () => {
       .get("/servers/1")
       .expect("Content-Type", /json/)
       .expect(200)
+      // RCON passwords are never part of the server info.
+      .expect((result) => {
+        expect(result.body.server.rcon_password).toEqual(undefined);
+      });
+  });
+  it("Reveal the RCON password of our own server.", () => {
+    return request
+      .get("/servers/1/rcon")
+      .expect("Content-Type", /json/)
+      .expect(200)
       // Test to decrypt the password, if it matches then we decrypt/encrypt properly!
       .expect((result) => {
-        expect(result.body.server.rcon_password).toBe(password);
+        expect(result.body.rcon_password).toBe(password);
       });
   });
   it("Request the information of all users servers.", () => {
@@ -131,6 +141,12 @@ describe("Test the game server routes.", () => {
       .expect((result) => {
         expect(result.body.rcon_password).toEqual(undefined);
       });
+  });
+  it("Should not reveal the RCON password of a server we don't own.", () => {
+    return request
+      .get("/servers/2/rcon")
+      .expect("Content-Type", /json/)
+      .expect(403);
   });
   it("Should try and fail to edit server 2.", () => {
     let updatedServerData = [

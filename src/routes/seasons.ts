@@ -362,6 +362,11 @@ router.get("/:season_id", async (req, res, next) => {
 router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     let defaultCvar: any = req.body[0].season_cvar;
+    const cvarError: string | null = Utils.validateCvars(defaultCvar);
+    if (cvarError) {
+      res.status(412).json({ message: cvarError });
+      return;
+    }
     let insertSet: SeasonObject | SeasonCvarObject = {
       user_id: req.user?.id,
       name: req.body[0].name,
@@ -376,8 +381,8 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         insertSet = {
           //@ts-ignore
           season_id: insertSeason.insertId,
-          cvar_name: key.replace(/"/g, '\\"'),
-          cvar_value: typeof defaultCvar[key] === 'string' ? defaultCvar[key].replace(/"/g, '\\"').replace(/\\/g, '\\\\') : defaultCvar[key]
+          cvar_name: key,
+          cvar_value: defaultCvar[key]
         };
         await db.query(sql, [insertSet]);
       }
@@ -452,6 +457,11 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
   } else {
     try {
       let defaultCvar: any = req.body[0].season_cvar;
+      const cvarError: string | null = Utils.validateCvars(defaultCvar);
+      if (cvarError) {
+        res.status(412).json({ message: cvarError });
+        return;
+      }
       let updateStmt: SeasonObject = {
         user_id: req.body[0].user_id,
         name: req.body[0].name,
@@ -478,8 +488,8 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
         for (let key in defaultCvar) {
           let insertSet: SeasonCvarObject = {
             season_id: req.body[0].season_id,
-            cvar_name: key.replace(/"/g, '\\"'),
-            cvar_value: typeof defaultCvar[key] === 'string' ? defaultCvar[key].replace(/"/g, '\\"').replace(/\\/g, '\\\\') : defaultCvar[key],
+            cvar_name: key,
+            cvar_value: defaultCvar[key],
           };
           await db.query(sql, [insertSet]);
         }
@@ -528,31 +538,28 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", async (req, res, next) => {
-  let seasonUserId: string = "SELECT user_id FROM season WHERE id = ?";
-  const seasonRow: RowDataPacket[] = await db.query(seasonUserId, req.body[0].season_id);
-  if (seasonRow[0] == null) {
-    res.status(404).json({ message: "No season found." });
-    return;
-  } else if (
-    req.user &&
-    seasonRow[0].user_id != req.user.id &&
-    !Utils.superAdminCheck(req.user)
-  ) {
-    res
-      .status(403)
-      .json({ message: "User is not authorized to perform action." });
-    return;
-  } else {
-    try {
-      let deleteSql: string = "DELETE FROM season WHERE id = ?";
-      let seasonId: number = parseInt(req.body[0].season_id);
-      await db.query(deleteSql, [seasonId]);
-      res.json({ message: "Season deleted successfully!" });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    let seasonUserId: string = "SELECT user_id FROM season WHERE id = ?";
+    const seasonRow: RowDataPacket[] = await db.query(seasonUserId, [req.body[0]?.season_id]);
+    if (seasonRow[0] == null) {
+      res.status(404).json({ message: "No season found." });
+      return;
+    } else if (
+      seasonRow[0].user_id != req.user!.id &&
+      !Utils.superAdminCheck(req.user!)
+    ) {
+      res
+        .status(403)
+        .json({ message: "User is not authorized to perform action." });
+      return;
     }
+    let deleteSql: string = "DELETE FROM season WHERE id = ?";
+    let seasonId: number = parseInt(req.body[0].season_id);
+    await db.query(deleteSql, [seasonId]);
+    res.json({ message: "Season deleted successfully!" });
+  } catch (err) {
+    next(err);
   }
 });
 

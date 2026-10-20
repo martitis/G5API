@@ -23,7 +23,8 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
 - Migrations: `yarn migrate-<dev|prod|test>-upgrade`, `migrate-create-*`, `migrate-drop-*`. Migrations are copied in
   `migrations/{development,production,test}`. Keep the three identical, and **don't merge or move them**: db-migrate
   records each applied migration with its scope folder, so live DBs would re-run everything.
-- `yarn test`: builds, recreates the test DB, then runs the Jest suites in `__test__/` in a fixed order. It needs a live MySQL
+- `yarn test:unit`: DB-free unit tests (`__test__/unit.test.js`). Needs a config, e.g. `NODE_CONFIG_DIR` pointing at a copy of `test.json.template`.
+- `yarn test`: builds, runs the unit tests, recreates the test DB, then runs the Jest suites in `__test__/` in a fixed order. It needs a live MySQL
   and `config/test.json`. CI (`.github/workflows/ci.yml`) runs it against a MySQL 8 service.
 - Don't put files in `docs/`: `yarn doc` writes jsdoc there and `yarn docclean` deletes it.
 
@@ -85,9 +86,14 @@ Docs: https://shobhit-pathak.github.io/MatchZy/ (commands, configuration, match 
 ## Conventions (must follow)
 - SQL uses `?` placeholders only, through `db.query`.
 - Every mutating route has `Utils.ensureAuthenticated` plus an explicit owner/admin check. Never `req.user && …`, which
-  skips the check for anonymous users.
-- Validate and sanitize **every** value interpolated into an RCON command: SteamID64 `^7656\d{13}$`; reject `" ; \r \n`.
-- Async handlers wrap their bodies in try/catch and always send a response. An unhandled rejection kills the process.
-- Error responses carry a generic message (no `err.toString()` or stack traces to clients).
-- Never return RCON passwords, password hashes or other users' API keys.
+  skips the check for anonymous users. State-changing actions are POST/PUT/DELETE, never GET (CSRF).
+- Every value interpolated into an RCON command goes through `safeRconArg()` / the SteamID64 check in
+  `src/utility/serverrcon.ts`; they throw `RconArgumentError`, which routes map to 412.
+- User-supplied cvars go through `Utils.validateCvars()` before they're stored.
+- Secrets are compared with `Utils.safeCompare()`. Steam IDs from users go through `Utils.getSteamPID()`, which returns `""`
+  when an ID is invalid.
+- Async handlers should catch and call `next(err)`. `src/utility/asyncErrors.ts` (imported first in `app.ts`) forwards
+  stray rejections to the global error handler, which sends clients a generic message.
+- Never return RCON passwords (`GET /servers/:id/rcon` is the only way to read one), password hashes, or other users' API keys.
+- `user.steam_verified = 0` marks a local account whose Steam ID was never proven. It must not get admin rights.
 - Match the surrounding style (2-space indent, double quotes, JSDoc `@swagger` blocks on routes).

@@ -1,9 +1,12 @@
+// Must be first: patches Express before any router is created.
+import "./src/utility/asyncErrors.js";
 import config from "config";
 import RedisStore from "connect-redis";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import bearerToken from "express-bearer-token";
+import rateLimit from "express-rate-limit";
 import session from "express-session";
 import helmet from "helmet";
 import createError from "http-errors";
@@ -17,7 +20,6 @@ import { serve, setup } from "swagger-ui-express";
 // Route Files
 import indexRouter from "./src/routes/index.js";
 import leaderboardRouter from "./src/routes/leaderboard.js";
-import legacyAPICalls from "./src/routes/legacy/api.js";
 import mapListRouter from "./src/routes/maps.js";
 import mapstatsRouter from "./src/routes/mapstats.js";
 import matchesRouter from "./src/routes/matches/matches.js";
@@ -31,6 +33,7 @@ import usersRouter from "./src/routes/users.js";
 import vetoesRouter from "./src/routes/vetoes.js";
 import vetosidesRouter from "./src/routes/vetosides.js";
 import passport from "./src/utility/auth.js";
+import Utils from "./src/utility/utils.js";
 import {router as v2Router} from "./src/routes/v2/api.js";
 import {router as v2DemoRouter} from "./src/routes/v2/demoapi.js";
 import { router as v2BackupRouter } from "./src/routes/v2/backupapi.js";
@@ -40,20 +43,47 @@ import { router as v2BackupRouter } from "./src/routes/v2/backupapi.js";
 
 const app = express();
 
+// Behind nginx/Caddy: needed for correct client IPs (rate limits) and secure cookies.
+app.set("trust proxy", 1);
+
+// Security headers first, so they also cover static files (logos, demos, backups).
+// Cross-origin resource policy stays open so the panel (often on another origin) can show logos.
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+
 app.use(logger("dev"));
-app.use(express.raw({ type: "application/octet-stream", limit: "2gb" }));
+// Raw bodies are only accepted on the upload routes; demos are large, round backups are small JSON files.
+app.use("/v2/demo", express.raw({ type: "application/octet-stream", limit: "2gb" }));
+app.use("/v2/backup", express.raw({ type: "application/octet-stream", limit: "20mb" }));
 app.use(express.json({ limit: "512kb" }));
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use("/demo", express.static("public/demos"));
+// Round backups are fetched by the game server (matchzy_loadbackup_url) with the match API key.
+app.use("/backups/:match_id", async (req, res, next) => {
+  try {
+    const keyCheck = await Utils.checkApiKey(req.get("Authorization") ?? "", req.params.match_id);
+    if (keyCheck !== 0) {
+      res.status(401).json({ message: "Invalid API key has been given." });
+      return;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 app.use("/backups", express.static("public/backups"));
 app.use("/static/img/logos", express.static("public/img/logos"));
 app.use("/resource/flash/econ/tournaments/teams", express.static("public/img/logos"));
 app.use("/materials/panorama/images/tournaments/teams", express.static("public/img/logos"));
 
 
-// Security defaults with helmet
-app.use(helmet());
+// secure: "auto" marks the cookie Secure whenever the request came over HTTPS (via trust proxy).
+const sessionCookie: session.CookieOptions = {
+  maxAge: 86400000,
+  httpOnly: true,
+  sameSite: "lax",
+  secure: "auto"
+};
 
 let sessionType: any;
 if (config.get("server.useRedis")) {
@@ -75,7 +105,7 @@ if (config.get("server.useRedis")) {
     resave: false,
     saveUninitialized: true,
     store: new RedisStore(redisCfg),
-    cookie: { maxAge: 86400000 },
+    cookie: sessionCookie,
   });
   process.on("exit", function () {
     redisClient.quit();
@@ -86,7 +116,7 @@ if (config.get("server.useRedis")) {
     name: "G5API",
     resave: false,
     saveUninitialized: true,
-    cookie: { maxAge: 86400000 },
+    cookie: sessionCookie,
   });
 }
 
@@ -144,7 +174,6 @@ app.use("/mapstats", mapstatsRouter);
 app.use("/playerstats", playerstatsRouter);
 app.use("/playerstatsextra", playerstatsextraRouter);
 app.use("/seasons", seasonsRouter);
-app.use("/match", legacyAPICalls);
 app.use("/leaderboard", leaderboardRouter);
 app.use("/maps", mapListRouter);
 app.use("/v2", v2Router);
@@ -176,17 +205,35 @@ app.get(
     }
   }
 );
-app.get('/logout', function(req, res, next) {
+// POST only, so other sites can't log users out with a link or image.
+app.post('/logout', function(req, res, next) {
   req.logout(function(err) {
     if (err) { return next(err); }
-    res.redirect('/');
+    res.json({ message: "Logged out." });
   });
 });
 // END Steam API Calls.
 
 // Local Passport Calls
+// Brute-force protection: 10 attempts per IP per 15 minutes.
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many attempts, please try again later." }
+});
+
+const localAuthFailure = (err: any, req: any, res: any, next: any) => {
+  const messages: string[] = req.session?.messages ?? [];
+  return res
+    .status(err.status || 401)
+    .json({ message: messages[messages.length - 1] ?? "Authentication failed." });
+};
+
 app.post(
   "/login",
+  authRateLimit,
   passport.authenticate("local-login", {
     failWithError: true,
     failureMessage: true,
@@ -194,15 +241,12 @@ app.post(
   (req: any, res: any) => {
     return res.json({ message: "Success!" });
   },
-  (err: any, req: any, res: any, next: any) => {
-    console.log(err);
-    err.message = req.session.messages[req.session.messages.length - 1];
-    return res.json(err);
-  }
+  localAuthFailure
 );
 
 app.post(
   "/register",
+  authRateLimit,
   passport.authenticate("local-register", {
     failWithError: true,
     failureMessage: true,
@@ -210,10 +254,7 @@ app.post(
   (req: any, res: any) => {
     return res.json({ message: "Success!" });
   },
-  (err: any, req: any, res: any, next: any) => {
-    err.message = req.session.messages[req.session.messages.length - 1];
-    return res.json(err);
-  }
+  localAuthFailure
 );
 
 // END Local Passport Calls
@@ -223,15 +264,21 @@ app.use(function (req, res, next) {
   next(createError(404));
 });
 
-// error handler
+// error handler: details go to the log, clients only get a generic message for server errors.
 app.use(function (err: any, req: any, res: any, next: any) {
-  // set locals, only providing error in development
-  res.locals.message = err.message;
-  res.locals.error = req.app.get("env") === "development" ? err : {};
+  const status: number = err.status || err.statusCode || 500;
+  if (status >= 500) console.error(err);
+  if (res.headersSent) return next(err);
+  res.status(status);
+  res.json({
+    message: status >= 500 ? "Internal server error." : err.message,
+    ...(req.app.get("env") === "development" && status >= 500 ? { error: String(err) } : {})
+  });
+});
 
-  // render the error page
-  res.status(err.status || 500);
-  res.json({ error: err.message });
+// Log instead of crashing the process on a stray async error.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
 });
 
 export default app;

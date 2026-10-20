@@ -11,7 +11,7 @@ import {db} from "../../services/db.js";
 
 import Utils from "../../utility/utils.js";
 
-import GameServer from "../../utility/serverrcon.js";
+import GameServer, { BackupEntry, RconArgumentError } from "../../utility/serverrcon.js";
 
 
 import { existsSync, readdir } from "fs";
@@ -24,7 +24,7 @@ import { MatchData } from "../../types/matches/MatchData.js";
  * @swagger
  *
  *  /matches/:match_id/forfeit/:winner_id:
- *   get:
+ *   post:
  *     description: Forfeits a current match with a given team ID as the winner, if the match is running.
  *     parameters:
  *       - in: path
@@ -57,7 +57,7 @@ import { MatchData } from "../../types/matches/MatchData.js";
  *       412:
  *         $ref: '#/components/responses/MatchInvalidData'
  */
-router.get(
+router.post(
   "/:match_id/forfeit/:winner_id",
   Utils.ensureAuthenticated,
   async (req, res, next) => {
@@ -157,7 +157,7 @@ router.get(
  * @swagger
  *
  *  /matches/:match_id/cancel:
- *   get:
+ *   post:
  *     description: Cancels the given match, provided it isn't finished and the user has the ability to do so. The user must either own the match or be an admin.
  *     produces:
  *       - application/json
@@ -183,7 +183,7 @@ router.get(
  *       403:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.get(
+router.post(
   "/:match_id/cancel/",
   Utils.ensureAuthenticated,
   async (req, res, next) => {
@@ -278,7 +278,7 @@ router.get(
  * @swagger
  *
  *  /matches/:match_id/restart:
- *   get:
+ *   post:
  *     description: Restarts the given match, provided it isn't finished and the user has the ability to do so. The user must either own the match or be an admin.
  *     produces:
  *       - application/json
@@ -304,7 +304,7 @@ router.get(
  *       403:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.get(
+router.post(
   "/:match_id/restart/",
   Utils.ensureAuthenticated,
   async (req, res, next) => {
@@ -493,7 +493,7 @@ router.put(
  * @swagger
  *
  *  /matches/:match_id/pause:
- *   get:
+ *   post:
  *     description: Sends the sm_pause command to a given match.
  *     produces:
  *       - application/json
@@ -519,7 +519,7 @@ router.put(
  *       403:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.get(
+router.post(
   "/:match_id/pause/",
   Utils.ensureAuthenticated,
   async (req, res, next) => {
@@ -555,7 +555,7 @@ router.get(
  * @swagger
  *
  *  /matches/:match_id/unpause:
- *   get:
+ *   post:
  *     description: Sends the sm_unpause command to a given match.
  *     produces:
  *       - application/json
@@ -581,7 +581,7 @@ router.get(
  *       403:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.get(
+router.post(
   "/:match_id/unpause/",
   Utils.ensureAuthenticated,
   async (req, res, next) => {
@@ -696,9 +696,13 @@ router.put(
             response: rconResponse,
           });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
@@ -787,9 +791,13 @@ router.put(
             response: rconResponse,
           });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
@@ -865,9 +873,13 @@ router.put(
             response: rconResponse,
           });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
@@ -943,9 +955,13 @@ router.put(
             response: rconResponse,
           });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
@@ -1003,12 +1019,16 @@ router.get(
       } else {
         let serverUpdate: GameServer = await getGameServer(req.params.match_id);
         try {
-          let rconResponse: string = await serverUpdate.getBackups();
-          res.json({ message: "Backups retrieved.", response: rconResponse });
+          let backups: BackupEntry[] = await serverUpdate.getBackups(req.params.match_id);
+          res.json({ message: "Backups retrieved.", response: backups });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
@@ -1078,21 +1098,30 @@ router.post(
         return;
       } else {
         let serverUpdate: GameServer = await getGameServer(req.params.match_id);
-        if (req.body[0].backup_name == null) {
+        const backupName: unknown = req.body[0]?.backup_name;
+        if (typeof backupName !== "string" || backupName === "") {
           res
             .status(412)
             .json({ message: "Please provide the backup name." });
           return;
         }
         try {
-          let rconResponse: string = await serverUpdate.restoreBackup(
-            req.body[0].backup_name
-          );
+          // Only restore a file the server actually lists for this match.
+          const backups: BackupEntry[] = await serverUpdate.getBackups(req.params.match_id);
+          if (process.env.NODE_ENV !== "test" && !backups.some((b) => b.file === backupName)) {
+            res.status(412).json({ message: "Backup not found on the game server." });
+            return;
+          }
+          let rconResponse: string = await serverUpdate.restoreBackup(backupName);
           res.json({ message: "Restored backup.", response: rconResponse });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
@@ -1165,7 +1194,7 @@ router.post(
         return;
       } else {
         let newServerId: number = parseInt(req.body[0].server_id);
-        let currentMatchInfo: string = "SELECT server_id FROM `match` WHERE id = ?";
+        let currentMatchInfo: string = "SELECT server_id, api_key FROM `match` WHERE id = ?";
         let newServerInfo: string =
           "SELECT id, user_id, ip_string, port, rcon_password, public_server FROM game_server WHERE id = ?";
         let configString: string = req.body[0].backup_file;
@@ -1176,16 +1205,24 @@ router.post(
         const newServerRow: RowDataPacket[] = await db.query(newServerInfo, [
           newServerId
         ]);
+        if (!newServerRow.length) {
+          res.status(404).json({ message: "Server not found." });
+          return;
+        }
         // Check to see if new server row matches for access purposes.
-        if (req.user && !Utils.adminCheck(req.user)) {
-          if (newServerRow[0].user_id != req.user.id && !newServerRow[0].public_server) {
+        if (!Utils.adminCheck(req.user!)) {
+          if (newServerRow[0].user_id != req.user!.id && !newServerRow[0].public_server) {
             res.status(403).json({ message: "User is not authorized to perform action." });
             return;
           }
         }
 
-        // Check to see if file exists in our public directory.
-        if (!existsSync(`public/backups/${req.params.match_id}/${configString}`)) {
+        // Only plain file names from our own backup folder (no paths).
+        if (
+          typeof configString !== "string" ||
+          !/^[\w-]+(\.[\w-]+)*\.(json|cfg)$/.test(configString) ||
+          !existsSync(`public/backups/${parseInt(req.params.match_id)}/${configString}`)
+        ) {
           res
             .status(412)
             .json({ message: "Backup name invalid." });
@@ -1199,10 +1236,13 @@ router.post(
         try {
           if (await serverUpdate.isGet5Available()) {
             let rconResponse: string = await serverUpdate.restoreBackupFromURL(
-              Utils.apiUrl(`/backups/${req.params.match_id}/${configString}`)
+              Utils.apiUrl(`/backups/${parseInt(req.params.match_id)}/${configString}`),
+              matchServerId[0].api_key
             );
             currentMatchInfo = "UPDATE `match` SET server_id = ? WHERE id = ?";
-            await db.query(currentMatchInfo, [req.params.match_id, newServerId]);
+            await db.query(currentMatchInfo, [newServerId, req.params.match_id]);
+            currentMatchInfo = "UPDATE game_server SET in_use = 1 WHERE id = ?";
+            await db.query(currentMatchInfo, [newServerId]);
             currentMatchInfo = "UPDATE game_server SET in_use = 0 WHERE id = ?";
             await db.query(currentMatchInfo, [matchServerId[0].server_id]);
             res.json({ message: "Restored backup.", response: rconResponse });
@@ -1213,9 +1253,13 @@ router.post(
             return;
           }
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }

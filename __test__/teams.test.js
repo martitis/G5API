@@ -99,7 +99,7 @@ describe("Test the team routes", () => {
           "captain": 0,
           "coach": 0
         },
-        "12345": {
+        "76561198025644201": {
           "name": "Actually Phlex",
           "captain": 0,
           "coach": 0
@@ -129,7 +129,7 @@ describe("Test the team routes", () => {
       tag: 'BTMSHLF',
       public_team: 1,
       auth_name: {
-        "12345": {
+        "76561198025644201": {
           "name": "New team member!"
         }
       }
@@ -153,7 +153,7 @@ describe("Test the team routes", () => {
       tag: 'BTMSHLF',
       public_team: 1,
       auth_name: {
-        "12345": {
+        "76561198025644201": {
           "name": "New team member EDITED!"
         }
       }

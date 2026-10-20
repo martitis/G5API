@@ -369,11 +369,13 @@ router.get("/", async (req, res, next) => {
       "SELECT mtch.id, mtch.user_id, mtch.server_id, mtch.team1_id, mtch.team2_id, mtch.winner, mtch.team1_score, " +
       "mtch.team2_score, mtch.team1_series_score, mtch.team2_series_score, mtch.team1_string, mtch.team2_string, " +
       "mtch.cancelled, mtch.forfeit, mtch.start_time, mtch.end_time, mtch.max_maps, mtch.title, mtch.skip_veto, mtch.private_match, " +
-      "mtch.enforce_teams, mtch.min_player_ready, mtch.season_id, mtch.is_pug, usr.name as owner, mp.team1_score as team1_mapscore, mp.team2_score as team2_mapscore " +
-      "FROM `match` mtch JOIN user usr ON mtch.user_id = usr.id LEFT JOIN map_stats mp ON mp.match_id = mtch.id " +
+      "mtch.enforce_teams, mtch.min_player_ready, mtch.season_id, mtch.is_pug, usr.name as owner, " +
+      // Score of the current (latest) map. Subqueries instead of JOIN + GROUP BY, which MySQL 8 rejects (ONLY_FULL_GROUP_BY).
+      "(SELECT mp.team1_score FROM map_stats mp WHERE mp.match_id = mtch.id ORDER BY mp.map_number DESC LIMIT 1) as team1_mapscore, " +
+      "(SELECT mp.team2_score FROM map_stats mp WHERE mp.match_id = mtch.id ORDER BY mp.map_number DESC LIMIT 1) as team2_mapscore " +
+      "FROM `match` mtch JOIN user usr ON mtch.user_id = usr.id " +
       "WHERE cancelled = 0 " +
       "OR cancelled IS NULL " +
-      "GROUP BY mtch.id " +
       "ORDER BY id DESC";
     const matches: RowDataPacket[] = await db.query(sql);
     if (!matches.length) {
@@ -433,15 +435,14 @@ router.get("/mymatches", Utils.ensureAuthenticated, async (req, res, next) => {
              mtch.team1_string, mtch.team2_string, mtch.cancelled, mtch.forfeit, mtch.start_time, 
              mtch.end_time, mtch.max_maps, mtch.title, mtch.skip_veto, mtch.private_match, 
              mtch.enforce_teams, mtch.min_player_ready, mtch.season_id, mtch.is_pug, 
-             usr.name AS owner, 
-             mp.team1_score AS team1_mapscore, mp.team2_score AS team2_mapscore,
+             usr.name AS owner,
+             (SELECT mp.team1_score FROM map_stats mp WHERE mp.match_id = mtch.id ORDER BY mp.map_number DESC LIMIT 1) AS team1_mapscore,
+             (SELECT mp.team2_score FROM map_stats mp WHERE mp.match_id = mtch.id ORDER BY mp.map_number DESC LIMIT 1) AS team2_mapscore,
              gs.display_name AS server_name, gs.ip_string, gs.port
       FROM \`match\` mtch
       JOIN user usr ON mtch.user_id = usr.id
-      LEFT JOIN map_stats mp ON mp.match_id = mtch.id
       LEFT JOIN game_server gs ON mtch.server_id = gs.id
-      WHERE mtch.user_id = ? OR mtch.cancelled IS NULL
-      GROUP BY mtch.id
+      WHERE mtch.user_id = ?
       ORDER BY id DESC;
     `;
 
@@ -1156,6 +1157,11 @@ router.get("/:match_id/config", async (req, res, next) => {
  */
 router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
+    const cvarError: string | null = Utils.validateCvars(req.body[0]?.match_cvars);
+    if (cvarError) {
+      res.status(412).json({ message: cvarError });
+      return;
+    }
     // Check if server available, if we are given a server.
     let serverSql: string =
       "SELECT in_use, user_id, public_server FROM game_server WHERE id = ?";
@@ -1240,13 +1246,12 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
 
     if (req.body[0].match_cvars != null) {
       let cvarInsertSet: Array<Object> = req.body[0].match_cvars;
+      // Already validated above: no quotes or separators, so values are stored as-is.
       for (let key in cvarInsertSet) {
         await db.query(cvarSql, [
           insertMatch.insertId,
-          key.replace(/"/g, '\\"'),
-          typeof cvarInsertSet[key] === "string"
-            ? cvarInsertSet[key].replace(/"/g, '\\"')
-            : cvarInsertSet[key]
+          key,
+          cvarInsertSet[key]
         ]);
       }
     }
@@ -1349,6 +1354,11 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
     );
     if (errMessage != null) {
       res.status(errMessage.status).json({ message: errMessage.message });
+      return;
+    }
+    const cvarError: string | null = Utils.validateCvars(req.body[0]?.match_cvars);
+    if (cvarError) {
+      res.status(412).json({ message: cvarError });
       return;
     } else {
       let currentMatchInfo: string =

@@ -889,22 +889,21 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", async (req, res, next) => {
+router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
-    if (req.body[0].match_id == null) {
+    if (req.body[0]?.match_id == null) {
       res.status(412).json({ message: "Required Data Not Provided" });
       return;
     }
     let currentMatchInfo: string =
-      "SELECT mtch.user_id as user_id, mtch.cancelled as cancelled, mtch.forfeit as forfeit, mtch.end_time as mtch_end_time, mtch.api_key as mtch_api_key FROM `match` mtch, map_stats mstat WHERE mtch.id=?";
-    const matchRow: RowDataPacket[] = await db.query(currentMatchInfo, req.body[0].match_id);
+      "SELECT user_id, cancelled, forfeit, end_time as mtch_end_time FROM `match` WHERE id = ?";
+    const matchRow: RowDataPacket[] = await db.query(currentMatchInfo, [req.body[0].match_id]);
     if (!matchRow.length) {
       res.status(404).json({ message: "No player stats data found." });
       return;
     } else if (
-      req.user &&
-      matchRow[0].user_id != req.user.id &&
-      !Utils.superAdminCheck(req.user)
+      matchRow[0].user_id != req.user!.id &&
+      !Utils.superAdminCheck(req.user!)
     ) {
       res
         .status(403)
