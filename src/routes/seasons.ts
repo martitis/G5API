@@ -473,7 +473,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       updateStmt = await db.buildUpdateStatement(updateStmt);
       // Force getting the end date.
       updateStmt.end_date = req.body[0].end_date;
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });

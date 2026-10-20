@@ -488,7 +488,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
         map_name: req.body[0].map_name,
       };
       updatedValues = await db.buildUpdateStatement(updatedValues) as MapStats;
-      if (!Object.keys(updatedValues)) {
+      if (Object.keys(updatedValues).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });

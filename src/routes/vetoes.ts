@@ -266,7 +266,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         pick_or_veto: req.body[0].pick_or_ban,
       };
       insertStmt = await db.buildUpdateStatement(insertStmt) as VetoObject;
-      if (!Object.keys(insertStmt)) {
+      if (Object.keys(insertStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No insert data has been provided." });
@@ -343,7 +343,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
         pick_or_veto: req.body[0].pick_or_ban,
       };
       updateStmt = await db.buildUpdateStatement(updateStmt) as VetoObject;
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });

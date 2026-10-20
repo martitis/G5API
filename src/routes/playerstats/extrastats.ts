@@ -643,7 +643,7 @@ import { Response } from "express-serve-static-core";
       };
       // Remove any values that may not be updated.
       updateStmt = await db.buildUpdateStatement(updateStmt) as PlayerInfo;
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });
