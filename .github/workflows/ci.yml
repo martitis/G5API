@@ -51,10 +51,18 @@ jobs:
           c.test.password = "root";
           fs.writeFileSync("config/test.json", JSON.stringify(c, null, 2));
           '
+      # Same steps as `yarn test`, but every suite runs even after a failure, so one run shows all failures.
       - name: yarn test
         run: |
           set -o pipefail
-          yarn test 2>&1 | tee test.log
+          {
+            yarn build && yarn test:unit && yarn test:setup-user && yarn migrate-drop-test && yarn migrate-create-test && yarn migrate-test-upgrade || exit 1
+            failed=""
+            for suite in user gameservers teams matches seasons vetoes mapstats playerstats vetosides maplists; do
+              yarn "test:$suite" || failed="$failed $suite"
+            done
+            if [ -n "$failed" ]; then echo "Failed suites:$failed"; exit 1; fi
+          } 2>&1 | tee test.log
       # Job logs need a GitHub login; annotations are visible to anyone, including the API.
       - name: Publish test log tail
         if: failure()
