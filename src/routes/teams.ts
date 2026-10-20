@@ -19,7 +19,8 @@ import Utils from "../utility/utils.js";
 
 import { generate } from "randomstring";
 
-import { writeFile, unlink } from "fs";
+import { unlink } from "fs";
+import { writeFile } from "fs/promises";
 
 import fetch from "node-fetch";
 import { RowDataPacket } from "mysql2";
@@ -331,60 +332,47 @@ router.get("/:team_id/basic", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res) => {
-  let userID: number = req.user!.id;
-  let teamName: string = req.body[0].name;
-  let flag: string = req.body[0].flag;
-  let logo: string = req.body[0].logo_file;
-  let logoName: string | null = null;
-  let auths: Array<AuthData> = req.body[0].auth_name;
-  let tag: string = req.body[0].tag;
-  let public_team: number = req.body[0].public_team;
-  let teamID: number | null = null;
-  if (logo) {
-    // Generate a 5 character logo "name".
-    logoName = generate({
-      length: 5,
-      charset: "alphanumeric",
-    });
-    if (logo.includes("data:image/png;base64")) {
-      let base64Data: string = logo.replace(/^data:image\/png;base64,/, "");
-      writeFile(
-        "public/img/logos/" + logoName + ".png",
-        base64Data,
-        "base64",
-        err => {
-          if (err) console.error(err);
-        }
-      );
-    } else {
-      let base64Data: string = Buffer.from(logo).toString('base64').replace(/^data:image\/([\w+]+);base64,([\s\S]+)/, "");
-      let baseImg: any = img(Buffer.from(base64Data, 'base64').toString());
-      writeFile(
-        "public/img/logos/" + logoName + ".svg",
-        baseImg.base64,
-        { encoding: 'base64' }, 
-        err => {
-          if (err) console.error(err);
-        }
-      );
-    }
-    
-  }
-  let newTeam: Array<TeamData> = [
-    {
-      user_id: userID,
-      name: teamName,
-      flag: flag,
-      logo: logoName,
-      tag: tag,
-      public_team: public_team,
-    },
-  ];
-  let sql: string =
-    "INSERT INTO team (user_id, name, flag, logo, tag, public_team) VALUES ?";
-
+router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
+    let userID: number = req.user!.id;
+    let teamName: string = req.body[0].name;
+    let flag: string = req.body[0].flag;
+    let logo: string = req.body[0].logo_file;
+    let logoName: string | null = null;
+    let tag: string = req.body[0].tag;
+    let public_team: number = req.body[0].public_team;
+    let teamID: number | null = null;
+    // Validate every member before writing anything.
+    const auths = await resolveTeamAuths(req.body[0].auth_name);
+    if (typeof auths === "string") {
+      res.status(412).json({ message: auths });
+      return;
+    }
+    if (logo) {
+      // Generate a 5 character logo "name".
+      logoName = generate({
+        length: 5,
+        charset: "alphanumeric",
+      });
+      const logoError = await saveLogo(logo, logoName);
+      if (logoError) {
+        res.status(412).json({ message: logoError });
+        return;
+      }
+    }
+    let newTeam: Array<TeamData> = [
+      {
+        user_id: userID,
+        name: teamName,
+        flag: flag,
+        logo: logoName,
+        tag: tag,
+        public_team: public_team,
+      },
+    ];
+    let sql: string =
+      "INSERT INTO team (user_id, name, flag, logo, tag, public_team) VALUES ?";
+
     const insertTeam: RowDataPacket[] = await db.query(sql, [
       newTeam.map((item) => [
         item.user_id,
@@ -399,22 +387,18 @@ router.post("/", Utils.ensureAuthenticated, async (req, res) => {
     teamID = insertTeam.insertId;
     sql =
       "INSERT INTO team_auth_names (team_id, auth, name, captain, coach) VALUES (?, ?, ?, ?, ?)";
-    for (let key in auths) {
-      let isCaptain: number = auths[key].captain == null ? 0 : auths[key].captain;
-      let isCoach: number = auths[key].coach == null ? 0 : auths[key].coach;
-      let usersSteamId: string = await Utils.getSteamPID(key);
+    for (const auth of auths) {
       await db.query(sql, [
         teamID,
-        usersSteamId,
-        auths[key].name,
-        isCaptain,
-        isCoach
+        auth.steamId,
+        auth.name,
+        auth.captain,
+        auth.coach
       ]);
     }
     res.json({ message: "Team successfully inserted.", id: teamID });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -454,95 +438,77 @@ router.post("/", Utils.ensureAuthenticated, async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res) => {
-  let checkUserSql: string = "SELECT * FROM team WHERE id = ?";
-  const checkUser: RowDataPacket[] = await db.query(checkUserSql, [req.body[0].id]);
-  if (checkUser[0] == null) {
-    res.status(404).json({ message: "Team does not exist." });
-    return;
-  } else if (
-    req.user &&
-    checkUser[0].user_id != req.user.id &&
-    !Utils.superAdminCheck(req.user)
-  ) {
-    res
-      .status(403)
-      .json({ message: "User is not authorized to perform action." });
-    return;
-  }
-  let teamID: number = req.body[0].id;
-  let teamName: string = req.body[0].name;
-  let teamFlag: string = req.body[0].flag;
-  let teamLogo: string = req.body[0].logo_file;
-  let logoName: string | null = null;
-  let teamAuths: Array<AuthData> = req.body[0].auth_name;
-  let teamTag: string = req.body[0].tag;
-  let publicTeam: number = req.body[0].public_team;
-  let userId: number = req.body[0].user_id;
-  let updateTeam: TeamData = {
-    user_id: userId,
-    name: teamName,
-    flag: teamFlag,
-    logo: logoName,
-    tag: teamTag,
-    public_team: publicTeam,
-    id: teamID,
-  };
-  if (teamLogo) {
-    // Overwrite the current file.
-    if (checkUser[0].logo == null) {
-      logoName = generate({
-        length: 5,
-        charset: "alphanumeric",
-      });
-    } else {
-      logoName = checkUser[0].logo;
-    }
-    if (teamLogo.includes("data:image/png;base64")) {
-      let base64Data: string = teamLogo.replace(/^data:image\/png;base64,/, "");
-      writeFile(
-        "public/img/logos/" + logoName + ".png",
-        base64Data,
-        "base64",
-        err => {
-          if (err) console.error(err);
-        }
-      );
-    } else if (teamLogo.includes("data:image/svg+xml;base64")) {
-      let base64Data: string = Buffer.from(teamLogo).toString('base64').replace(/^data:image\/([\w+]+);base64,([\s\S]+)/, "");
-      let baseImg: any = img(Buffer.from(base64Data, 'base64').toString());
-      writeFile(
-        "public/img/logos/" + logoName + ".svg",
-        baseImg.base64,
-        { encoding: 'base64' }, 
-        err => {
-          if (err) console.error(err);
-        }
-      );
-    }
-    updateTeam.logo = logoName;
-  }
-  updateTeam = await db.buildUpdateStatement(updateTeam) as TeamData;
-  if (!Object.keys(updateTeam)) {
-    res.status(412).json({ message: "No update data has been provided." });
-    return;
-  }
-  let sql: string = "UPDATE team SET ? WHERE id=?";
+router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
+    let checkUserSql: string = "SELECT * FROM team WHERE id = ?";
+    const checkUser: RowDataPacket[] = await db.query(checkUserSql, [req.body[0]?.id]);
+    if (checkUser[0] == null) {
+      res.status(404).json({ message: "Team does not exist." });
+      return;
+    } else if (
+      checkUser[0].user_id != req.user!.id &&
+      !Utils.superAdminCheck(req.user!)
+    ) {
+      res
+        .status(403)
+        .json({ message: "User is not authorized to perform action." });
+      return;
+    }
+    let teamID: number = req.body[0].id;
+    let teamName: string = req.body[0].name;
+    let teamFlag: string = req.body[0].flag;
+    let teamLogo: string = req.body[0].logo_file;
+    let logoName: string | null = null;
+    let teamTag: string = req.body[0].tag;
+    let publicTeam: number = req.body[0].public_team;
+    let userId: number = req.body[0].user_id;
+    // Validate every member before writing anything.
+    const teamAuths = await resolveTeamAuths(req.body[0].auth_name);
+    if (typeof teamAuths === "string") {
+      res.status(412).json({ message: teamAuths });
+      return;
+    }
+    let updateTeam: TeamData = {
+      user_id: userId,
+      name: teamName,
+      flag: teamFlag,
+      logo: logoName,
+      tag: teamTag,
+      public_team: publicTeam,
+      id: teamID,
+    };
+    if (teamLogo) {
+      // Overwrite the current file.
+      if (checkUser[0].logo == null) {
+        logoName = generate({
+          length: 5,
+          charset: "alphanumeric",
+        });
+      } else {
+        logoName = checkUser[0].logo;
+      }
+      const logoError = await saveLogo(teamLogo, logoName!);
+      if (logoError) {
+        res.status(412).json({ message: logoError });
+        return;
+      }
+      updateTeam.logo = logoName;
+    }
+    updateTeam = await db.buildUpdateStatement(updateTeam) as TeamData;
+    if (Object.keys(updateTeam).length === 0) {
+      res.status(412).json({ message: "No update data has been provided." });
+      return;
+    }
+    let sql: string = "UPDATE team SET ? WHERE id=?";
     await db.query(sql, [updateTeam, teamID]);
     sql =
       "UPDATE team_auth_names SET name = ?, captain = ?, coach = ? WHERE auth = ? AND team_id = ?";
-    for (let key in teamAuths) {
-      let isCaptain: number =
-        teamAuths[key].captain == null ? 0 : teamAuths[key].captain;
-      let isCoach: number =
-        teamAuths[key].coach == null ? 0 : teamAuths[key].coach;
-      let usersSteamId: string = await Utils.getSteamPID(key);
+    for (const auth of teamAuths) {
       let updateTeamAuth: RowDataPacket[] = await db.query(sql, [
-        teamAuths[key].name,
-        isCaptain,
-        isCoach,
-        usersSteamId,
+        auth.name,
+        auth.captain,
+        auth.coach,
+        auth.steamId,
         teamID
       ]);
       //@ts-ignore
@@ -552,17 +518,16 @@ router.put("/", Utils.ensureAuthenticated, async (req, res) => {
           "INSERT INTO team_auth_names (team_id, auth, name, captain, coach) VALUES (?, ?, ?, ?, ?)";
         await db.query(insertSql, [
           teamID,
-          usersSteamId,
-          teamAuths[key].name,
-          isCaptain,
-          isCoach
+          auth.steamId,
+          auth.name,
+          auth.captain,
+          auth.coach
         ]);
       }
     }
     res.json({ message: "Team successfully updated" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -959,30 +924,62 @@ const getTeamImages = async (idList: any, getImage = true) => {
   return idList;
 };
 
-/** Covnerts an SVG image to base64 for proper saving.
+/** Anything in an SVG that can run script or load external content. */
+const UNSAFE_SVG_CONTENT =
+  /<script|<foreignObject|<iframe|<embed|<object|\bon[a-z]+\s*=|javascript:|\bhref\s*=\s*["']?\s*(?!#|data:image\/(?:png|jpe?g|gif|webp);)/i;
+
+/** Validates an uploaded logo (PNG or SVG data URL) and writes it to public/img/logos.
  * @function
  * @memberof module:routes/teams
- * @param {String} data - The base64 stripped of its header.
+ * @param {String} dataUrl - data:image/png;base64,... or data:image/svg+xml;base64,...
+ * @param {String} logoName - File name without extension.
+ * @returns An error message for the client, or null when the logo was saved.
  */
-const img: any = (data: any) => {
-  var reg = /^data:image\/([\w+]+);base64,([\s\S]+)/;
-  var match = data.match(reg);
-  var baseType: any = {
-    jpeg: 'jpg'
-  };
-
-  baseType['svg+xml'] = 'svg'
-
-  if (!match) {
-    throw new Error('image base64 data error');
+const saveLogo = async (dataUrl: string, logoName: string): Promise<string | null> => {
+  const match = /^data:image\/(png|svg\+xml);base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUrl));
+  if (!match || !/^[A-Za-z0-9]+$/.test(logoName)) {
+    return "Logo must be a PNG or SVG image.";
   }
+  const content = Buffer.from(match[2], "base64");
+  if (match[1] === "png") {
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    if (!content.subarray(0, 8).equals(pngSignature)) {
+      return "Logo is not a valid PNG image.";
+    }
+    await writeFile("public/img/logos/" + logoName + ".png", content);
+  } else {
+    const svg = content.toString("utf8");
+    if (!/<svg[\s>]/i.test(svg) || UNSAFE_SVG_CONTENT.test(svg)) {
+      return "SVG logo contains unsupported content (scripts, event handlers or external links).";
+    }
+    await writeFile("public/img/logos/" + logoName + ".svg", content);
+  }
+  return null;
+};
 
-  var extname = baseType[match[1]] ? baseType[match[1]] : match[1];
+type ResolvedAuth = { steamId: string; name: string | null; captain: number; coach: number };
 
-  return {
-    extname: '.' + extname,
-    base64: match[2]
-  };
-}
+/** Resolves every key of an auth_name object to a SteamID64.
+ * @function
+ * @memberof module:routes/teams
+ * @param {Object} auths - { "<any steam id format>": { name, captain, coach } }
+ * @returns The resolved members, or an error message naming the first invalid ID.
+ */
+const resolveTeamAuths = async (auths: Record<string, AuthData> | null | undefined): Promise<ResolvedAuth[] | string> => {
+  const resolved: ResolvedAuth[] = [];
+  for (const key of Object.keys(auths ?? {})) {
+    const steamId: string = await Utils.getSteamPID(key);
+    if (!steamId) {
+      return "Invalid Steam ID: " + key;
+    }
+    resolved.push({
+      steamId,
+      name: auths![key]?.name ?? null,
+      captain: auths![key]?.captain == null ? 0 : auths![key].captain!,
+      coach: auths![key]?.coach == null ? 0 : auths![key].coach!
+    });
+  }
+  return resolved;
+};
 
 export default router;

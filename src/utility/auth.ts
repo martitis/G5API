@@ -91,13 +91,21 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
         sql = "INSERT INTO map_list (map_name, map_display_name, user_id) VALUES ?";
         await db.query(sql, [defaultMaps]);
       } else {
-        let updateUser = {
+        let updateUser: { [key: string]: any } = {
           small_image: profile.photos[0].value,
           medium_image: profile.photos[1].value,
           large_image: profile.photos[2].value,
           super_admin: isSuperAdmin,
-          admin: isAdmin
+          admin: isAdmin,
+          steam_verified: 1
         };
+        if (!curUser[0].steam_verified) {
+          // Someone registered locally with this Steam ID before its owner ever logged in.
+          // The real owner takes the account over; the local credentials are dropped.
+          console.warn(`Steam login verified user ${curUser[0].id}; clearing unverified local credentials.`);
+          updateUser.username = null;
+          updateUser.password = null;
+        }
         sql = "UPDATE user SET ? WHERE steam_id=?";
         await db.query(sql, [updateUser, profile.id]);
         // Insert default maps.
@@ -183,9 +191,6 @@ passport.use('local-register',
       }
       let sql = "SELECT * FROM user WHERE username = ? OR steam_id = ?";
       let defaultMaps = [];
-      let superAdminList = (config.get("super_admins.steam_ids") as String).split(",");
-      let adminList = (config.get("admins.steam_ids") as String).split(",");
-      let isAdmin, isSuperAdmin = 0;
       if (!req.body.steam_id) {
         return done(null, false, {message: "Steam ID was not provided"});
       }
@@ -197,11 +202,8 @@ passport.use('local-register',
         if(await Utils.convertToSteam64(req.body.steam_id) == "") {
           return done(null, false, {message: "Not a valid Steam64 ID."});
         }
-        if (superAdminList.indexOf(req.body.steam_id) >= 0) {
-          isSuperAdmin = 1;
-        } else if (adminList.indexOf(req.body.steam_id) >= 0) {
-          isAdmin = 1;
-        }
+        // A local registration doesn't prove ownership of the Steam ID, so it never gets
+        // admin rights from the config lists; those apply after a real Steam login.
         let apiKey = generate({
           length: 64,
           capitalization: "uppercase",
@@ -211,8 +213,9 @@ passport.use('local-register',
         let newUser: Object = {
           steam_id: req.body.steam_id,
           name: steamName,
-          admin: isAdmin,
-          super_admin: isSuperAdmin,
+          admin: 0,
+          super_admin: 0,
+          steam_verified: 0,
           created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
           api_key: Utils.encrypt(apiKey),
           username: username,

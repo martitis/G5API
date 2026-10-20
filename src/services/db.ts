@@ -43,8 +43,9 @@ class Database {
       let listOfAdmins: Array<string> = (config.get("admins.steam_ids") as string).split(',');
       let listofSuperAdmins: Array<string> = (config.get("super_admins.steam_ids") as string).split(',');
       // Get list of admins from database and compare list and add new admins.
-      let updateAdmins: string = "UPDATE user SET admin = 1 WHERE steam_id IN (?)";
-      let updateSuperAdmins: string = "UPDATE user SET super_admin = 1 WHERE steam_id in(?)";
+      // Only accounts whose Steam ID was proven by a Steam login can be promoted.
+      let updateAdmins: string = "UPDATE user SET admin = 1 WHERE steam_verified = 1 AND steam_id IN (?)";
+      let updateSuperAdmins: string = "UPDATE user SET super_admin = 1 WHERE steam_verified = 1 AND steam_id in(?)";
       await connPool.query(updateAdmins, [listOfAdmins]);
       await connPool.query(updateSuperAdmins, [listofSuperAdmins]);
     } catch (err) {

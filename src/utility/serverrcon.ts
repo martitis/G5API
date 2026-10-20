@@ -4,6 +4,73 @@ import fetch from "node-fetch";
 import { compare } from "compare-versions";
 import { SteamApiResponse } from "../types/serverrcon/SteamApiResponse.js";
 
+/** Thrown when a value can't safely be passed as an RCON command argument. */
+export class RconArgumentError extends Error {}
+
+/** Quotes, semicolons and control characters would let an argument break out into another console command. */
+// eslint-disable-next-line no-control-regex -- rejecting control characters is the point
+const UNSAFE_RCON_CHARS = /[";\x00-\x1f\x7f]/;
+
+/**
+ * Validates a free-form RCON argument (nickname, URL, key).
+ * @param value - The value to check.
+ * @param label - Name used in the error message.
+ * @param maxLength - Maximum allowed length.
+ * @returns The value, if safe.
+ */
+export function safeRconArg(value: unknown, label: string, maxLength: number = 128): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength || UNSAFE_RCON_CHARS.test(value)) {
+    throw new RconArgumentError(`Invalid ${label}.`);
+  }
+  return value;
+}
+
+function safeSteamId(value: unknown): string {
+  if (typeof value !== "string" || !/^7656\d{13}$/.test(value)) {
+    throw new RconArgumentError("Invalid Steam ID.");
+  }
+  return value;
+}
+
+/** MatchZy round backup file name: matchzy_<matchid>_<mapnumber>_round<NN>.json */
+const MATCHZY_BACKUP_FILE = /^matchzy_(\d+)_(\d+)_round(\d+)\.json$/;
+
+export interface BackupEntry {
+  /** Exact file name to pass to matchzy_loadbackup. */
+  file: string;
+  /** Zero-based map number in the series. */
+  map_number: number;
+  round: number;
+  /** Whatever MatchZy printed after the file name (timestamp, teams, map, score). */
+  info: string;
+}
+
+/**
+ * Parses matchzy_listbackups output. Each line is either
+ * "<file> <timestamp> <team1> <team2> <map> <score1> <score2>" or a full path to the file;
+ * RCON output can also contain CR characters, padding bytes and message lines.
+ * @param output - Raw RCON output.
+ * @returns Backups, newest round first.
+ */
+export function parseBackupList(output: string): BackupEntry[] {
+  const backups = new Map<string, BackupEntry>();
+  for (const rawLine of output.split(/\r?\n/)) {
+    // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+    const line = rawLine.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    const firstToken = line.split(/\s+/)[0] ?? "";
+    const file = firstToken.split(/[\\/]/).pop() ?? "";
+    const match = MATCHZY_BACKUP_FILE.exec(file);
+    if (!match || backups.has(file)) continue;
+    backups.set(file, {
+      file,
+      map_number: parseInt(match[2]),
+      round: parseInt(match[3]),
+      info: line.slice(firstToken.length).trim()
+    });
+  }
+  return [...backups.values()].sort((a, b) => b.map_number - a.map_number || b.round - a.round);
+}
+
 /**
  * Creates a new server object to run various tasks.
  * @class
@@ -179,6 +246,8 @@ class ServerRcon {
       if (process.env.NODE_ENV === "test") {
         return false;
       }
+      safeRconArg(get5URLString, "match config URL", 512);
+      safeRconArg(get5APIKeyString, "match API key");
       let loadMatchResponse: string;
       let get5Version = await this.getGet5Version();
       if (compare(get5Version, "0.13.1", ">=")) {
@@ -270,6 +339,11 @@ class ServerRcon {
    */
   async addUser(teamString: string, steamId: string, nickName: string | null = null): Promise<string> {
     try {
+      if (!["team1", "team2", "spec"].includes(teamString)) {
+        throw new RconArgumentError("Invalid team.");
+      }
+      safeSteamId(steamId);
+      if (nickName) safeRconArg(nickName, "nickname", 64);
       if (process.env.NODE_ENV === "test") {
         return "Cannot add user on a test instance. Please use a development or production environment.";
       }
@@ -298,6 +372,10 @@ class ServerRcon {
    */
   async addCoach(teamString: string, steamId: string): Promise<string> {
     try {
+      if (!["team1", "team2"].includes(teamString)) {
+        throw new RconArgumentError("Invalid team.");
+      }
+      safeSteamId(steamId);
       if (process.env.NODE_ENV === "test") {
         return "Cannot add coaches on a test instance. Please use a development or production environment.";
       }
@@ -319,6 +397,7 @@ class ServerRcon {
    */
   async removeUser(steamId: string): Promise<string> {
     try {
+      safeSteamId(steamId);
       if (process.env.NODE_ENV === "test") {
         return "Cannot remove users on a test instance. Please use a development or production environment.";
       }
@@ -331,17 +410,20 @@ class ServerRcon {
   }
 
   /**
-   * Retrieves a list of backups on the game server.
+   * Retrieves the list of round backups for a match on the game server.
    * @function
-   * @returns Returns the response from the server.
+   * @param {String|Number} matchId - The match ID to list backups for.
+   * @returns The parsed backups, newest first.
    */
-  async getBackups(): Promise<string> {
+  async getBackups(matchId: string | number): Promise<BackupEntry[]> {
     try {
       if (process.env.NODE_ENV === "test") {
-        return "Cannot get backups on a test instance. Please use a development or production environment.";
+        return [];
       }
-      let loadMatchResponse = await this.execute("get5_listbackups");
-      return loadMatchResponse;
+      const id = parseInt(String(matchId));
+      if (isNaN(id)) throw new RconArgumentError("Invalid match ID.");
+      let listResponse = await this.execute(`get5_listbackups ${id}`);
+      return parseBackupList(listResponse);
     } catch (err) {
       console.error("RCON error on getBackups: " + (err as Error).toString());
       throw err;
@@ -351,15 +433,18 @@ class ServerRcon {
   /**
    * Attempts to restore a given backup on the server
    * @function
-   * @param {String} backupName - The filename of the backup on the server.
+   * @param {String} backupName - The filename of the backup on the server, as returned by getBackups.
    * @returns Returns the response from the server.
    */
   async restoreBackup(backupName: string): Promise<string> {
     try {
+      if (typeof backupName !== "string" || !MATCHZY_BACKUP_FILE.test(backupName)) {
+        throw new RconArgumentError("Invalid backup name.");
+      }
       if (process.env.NODE_ENV === "test") {
         return "Cannot restore backups on a test instance. Please use a development or production environment.";
       }
-      let loadMatchResponse = await this.execute(`get5_loadbackup ${backupName}`);
+      let loadMatchResponse = await this.execute(`get5_loadbackup "${backupName}"`);
       return loadMatchResponse;
     } catch (err) {
       console.error("RCON error on restore backup: " + (err as Error).toString());
@@ -370,15 +455,20 @@ class ServerRcon {
   /**
    * Attempts to restore a given backup from the API to a new server.
    * @function
-   * @param {String} backupName - The filename of the backup on the API.
+   * @param {String} backupUrl - The URL of the backup on the API.
+   * @param {String} matchApiKey - The match API key, sent as the Authorization header when the server downloads it.
    * @returns Returns the response from the server.
    */
-  async restoreBackupFromURL(backupName: string): Promise<string> {
+  async restoreBackupFromURL(backupUrl: string, matchApiKey: string): Promise<string> {
     try {
+      safeRconArg(backupUrl, "backup URL", 512);
+      safeRconArg(matchApiKey, "match API key");
       if (process.env.NODE_ENV === "test") {
         return "Cannot restore backups on a test instance. Please use a development or production environment.";
       }
-      let loadMatchResponse = await this.execute(`get5_loadbackup_url "${backupName}"`);
+      let loadMatchResponse = await this.execute(
+        `get5_loadbackup_url "${backupUrl}" "Authorization" "${matchApiKey}"`
+      );
       return loadMatchResponse;
     } catch (err) {
       console.error("RCON error on restore backup: " + (err as Error).toString());

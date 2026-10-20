@@ -143,53 +143,53 @@ router.post("/", basicRateLimit, async (req, res) => {
     switch (eventType.event) {
       // Series Flows
       case "map_picked":
-        SeriesFlowService.OnMapPicked(req.body as Get5_OnMapPicked, res);
+        await SeriesFlowService.OnMapPicked(req.body as Get5_OnMapPicked, res);
         break;
       case "map_vetoed":
-        SeriesFlowService.OnMapVetoed(req.body as Get5_OnMapVetoed, res);
+        await SeriesFlowService.OnMapVetoed(req.body as Get5_OnMapVetoed, res);
         break;
       case "side_picked":
-        SeriesFlowService.OnSidePicked(req.body as Get5_OnSidePicked, res);
+        await SeriesFlowService.OnSidePicked(req.body as Get5_OnSidePicked, res);
         break;
       case "backup_loaded":
-        SeriesFlowService.OnBackupRestore(
+        await SeriesFlowService.OnBackupRestore(
           req.body as Get5_OnBackupRestore,
           res
         );
         break;
       case "map_result":
-        SeriesFlowService.OnMapResult(req.body as Get5_OnMapResult, res);
+        await SeriesFlowService.OnMapResult(req.body as Get5_OnMapResult, res);
         break;
       case "series_end":
-        SeriesFlowService.OnSeriesResult(req.body as Get5_OnSeriesResult, res);
+        await SeriesFlowService.OnSeriesResult(req.body as Get5_OnSeriesResult, res);
         break;
       // Map Flows
       case "going_live":
-        MapFlowService.OnGoingLive(req.body as Get5_OnGoingLive, res);
+        await MapFlowService.OnGoingLive(req.body as Get5_OnGoingLive, res);
         break;
       case "round_start":
-        MapFlowService.OnRoundStart(req.body as Get5_OnRoundStart, res);
+        await MapFlowService.OnRoundStart(req.body as Get5_OnRoundStart, res);
         break;
       case "round_end":
-        MapFlowService.OnRoundEnd(req.body as Get5_OnRoundEnd, res);
+        await MapFlowService.OnRoundEnd(req.body as Get5_OnRoundEnd, res);
         break;
       case "player_death":
-        MapFlowService.OnPlayerDeath(req.body as Get5_OnPlayerDeath, res);
+        await MapFlowService.OnPlayerDeath(req.body as Get5_OnPlayerDeath, res);
         break;
       case "bomb_planted":
-        MapFlowService.OnBombEvent(req.body as Get5_OnBombEvent, res, false);
+        await MapFlowService.OnBombEvent(req.body as Get5_OnBombEvent, res, false);
         break;
       case "bomb_defused":
-        MapFlowService.OnBombEvent(req.body as Get5_OnBombEvent, res, true);
+        await MapFlowService.OnBombEvent(req.body as Get5_OnBombEvent, res, true);
         break;
       case "game_paused":
-        MapFlowService.OnMatchPausedUnPaused(
+        await MapFlowService.OnMatchPausedUnPaused(
           req.body as Get5_OnMatchPausedUnpaused,
           res
         );
         break;
       case "game_unpaused":
-        MapFlowService.OnMatchPausedUnPaused(
+        await MapFlowService.OnMatchPausedUnPaused(
           req.body as Get5_OnMatchPausedUnpaused,
           res
         );
@@ -201,6 +201,10 @@ router.post("/", basicRateLimit, async (req, res) => {
     // Responses are taken care of in the case statements.
     return;
   } catch (error: unknown) {
+    console.error(`Error handling ${eventType?.event} event for match ${matchId}:`, error);
+    if (!res.headersSent) {
+      res.status(500).send({ message: "Failed to process event." });
+    }
     return;
   }
 });

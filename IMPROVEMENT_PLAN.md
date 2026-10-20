@@ -24,30 +24,31 @@ The line numbers are from the 2026-10-20 analysis and will drift, so search for 
 - [x] G5V: `.yarnrc` ignores the Node ≤19 engines check from Vue CLI's node-ipc (until Phase 4)
 - [ ] Follow-up: `docker-compose.yml` pulls `ghcr.io/phlexplexico/g5api:latest` (upstream). Point it at your image or drop it (Phase 6)
 
-## Phase 1: Critical security (backend)
-- [ ] Auth on unauthenticated deletes: `seasons.ts:531`, `playerstats/playerstats.ts:892`, `playerstats/extrastats.ts:719`; audit all `req.user && …` checks
-- [ ] `getUserMatchAccessNoFinalize` (`utility/utils.ts:355`) skips the ownership check when there's no server
-- [ ] users.ts:
-  - only super_admin grants roles or sets others' passwords (`:318-329`, `POST :203`)
-  - IDOR: update `WHERE id = <resolved id>` (`:285-357`)
-  - stop returning hashes and keys (`:148-162`)
-- [ ] Local register can't claim a Steam ID or auto-get super admin (`utility/auth.ts:181-254`)
-- [ ] RCON injection: `sanitizeRconArg()` + SteamID64 validation in addplayer/removeplayer/loadbackup/loadbackup_url (`utility/serverrcon.ts`); `getSteamPID` returns only valid IDs (`utils.ts:224`)
-- [ ] Cvar validation with MatchZy rules (`matches.ts:1255,1534`, `seasons.ts`); whitelist on public servers that aren't yours
-- [ ] `checkApiKey` (`utils.ts:519`): 401 on a missing match or key; `timingSafeEqual`
-- [ ] Uploads:
-  - sanitize paths (`v2/backupapi.ts:112-124`, `v2/demoapi.ts:140`)
-  - per-route size limits (`app.ts:44`, global 2GB)
-  - protect `/backups`
-- [ ] Mask RCON passwords in server GETs (`servers.ts:96-305`); add an explicit owner/super-admin endpoint; G5V `ServersTable.vue:38-46`
-- [ ] CSRF:
-  - GET → POST for cancel/forfeit/restart/pause/unpause (`matchserver.ts:61,187,308,526,588`) and logout
-  - cookie `sameSite/secure/httpOnly`
-  - `trust proxy`
-- [ ] Rate limit `/login` and `/register`; fix the inverted legacy key generator (`legacy/api.ts:59,81,103`)
-- [ ] SVG logo sanitize/rasterize; PNG magic check (`teams.ts:360-371,511-522`)
-- [ ] Enforce `private_match` / `public_team`; fix the `/mymatches` `OR cancelled IS NULL` leak (`matches.ts:444`)
-- [ ] Global async error handling + `unhandledRejection` logging; no `err.toString()` to clients
+## Phase 1: Critical security (branch `phase1-security` in both repos)
+- [x] `ensureAuthenticated` + owner checks on the unauthenticated deletes (seasons, playerstats, playerstatsextra). Fixed `DELETE FROM player_stat_extras; WHERE …`. Every other `req.user && …` check sits behind `ensureAuthenticated`, so those are harmless
+- [x] `ensureAuthenticated` returns 401 JSON instead of redirecting XHR calls to Steam, and passes DB errors to `next`
+- [x] `getUserMatchAccessNoFinalize` checks ownership even when the match has no server
+- [x] users.ts:
+  - one target row, updated `WHERE id` (fixes the IDOR)
+  - only super admins change roles, force passwords, or create admins
+  - admins can only edit names/images of regular users
+  - GET never returns the password hash; API and Challonge keys go to their owner only
+  - fixed the `hashSync(undefined)` crash
+- [x] Local register: no admin rights; new `user.steam_verified` column (migration `20261020120000`). Steam login verifies the account and wipes unverified local credentials; `setupAdmins` only promotes verified accounts
+- [x] RCON: `safeRconArg` / SteamID64 checks in serverrcon (`RconArgumentError` becomes 412 in routes); `getSteamPID` only returns valid SteamID64s or `""`; team routes reject invalid member IDs before writing
+- [x] **Backup restore bug** (user-reported). MatchZy's `listbackups` prints `<file> <timestamp> <teams> <map> <score>` (or a full path) per line, and the panel sent the whole line, `\r` included. `getBackups()` now parses this into `{file, map_number, round, info}`; restore checks the name against the server's list and quotes it. G5V shows "Map N, round R · details"
+- [x] Cvars: `Utils.validateCvars` (MatchZy name/value rules; blocks rcon_password, sv_rcon_*, everyone_is_admin, any `*_url`/`*_header_*`), applied to match and season create/update; removed the `\"` escaping. *Not done:* a per-server whitelist for public servers
+- [x] `checkApiKey` uses `safeCompare` (timing-safe; a missing match or key never passes)
+- [x] Uploads: numeric ID headers and basename-only demo names; awaited writes; raw body only on `/v2/demo` (2gb) and `/v2/backup` (20mb); `/backups/:match_id/*` requires the match key, which `get5_loadbackup_url` now sends as a header
+- [x] RCON passwords are no longer in server GETs; `GET /servers/:id/rcon` serves them to the owner or a super admin; an empty password on edit keeps the current one (G5V shows a hint)
+- [x] CSRF: cancel/forfeit/restart/pause/unpause and logout are POST; session cookie `httpOnly`, `sameSite=lax`, `secure=auto`; `trust proxy`
+- [x] Rate limit on `/login` and `/register` (10 per 15 min per IP); failures return 401 JSON. Legacy G5WS `/match/*` routes are **unmounted** (file deletion stays in Phase 2)
+- [x] Logos: PNG signature check; SVGs with scripts, event handlers, foreignObject or external hrefs are rejected; helmet now runs before the static routes (it used to skip logos, demos and backups)
+- [x] Global error handler returns a generic message for 500s; `unhandledRejection` is logged; `src/utility/asyncErrors.ts` forwards async route errors to it (Express 4 patch)
+- [x] Fixed the swapped params in remote-backup server change (`UPDATE match SET server_id…`); the new server is marked in_use
+- [x] `/mymatches` filter is just `user_id = ?`
+- [x] `__test__/unit.test.js` (no DB): parser, sanitizers, cvars, auth/404/upload checks. Run with `yarn test:unit`
+- [ ] **Open:** enforce `private_match` / `public_team` on reads and SSE streams; per-server cvar whitelist; many routes still return `err.toString()` in their own catch blocks (cleanup in Phase 2)
 
 ## Phase 2: Backend bugs + MatchZy-native integration
 ### Config builder (`matches.ts:1012-1139`, `build_team_dict :1666-1708`, `types/matches/MatchJson.ts`)

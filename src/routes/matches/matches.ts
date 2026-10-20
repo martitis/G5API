@@ -440,7 +440,7 @@ router.get("/mymatches", Utils.ensureAuthenticated, async (req, res, next) => {
       JOIN user usr ON mtch.user_id = usr.id
       LEFT JOIN map_stats mp ON mp.match_id = mtch.id
       LEFT JOIN game_server gs ON mtch.server_id = gs.id
-      WHERE mtch.user_id = ? OR mtch.cancelled IS NULL
+      WHERE mtch.user_id = ?
       GROUP BY mtch.id
       ORDER BY id DESC;
     `;
@@ -1156,6 +1156,11 @@ router.get("/:match_id/config", async (req, res, next) => {
  */
 router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
+    const cvarError: string | null = Utils.validateCvars(req.body[0]?.match_cvars);
+    if (cvarError) {
+      res.status(412).json({ message: cvarError });
+      return;
+    }
     // Check if server available, if we are given a server.
     let serverSql: string =
       "SELECT in_use, user_id, public_server FROM game_server WHERE id = ?";
@@ -1240,13 +1245,12 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
 
     if (req.body[0].match_cvars != null) {
       let cvarInsertSet: Array<Object> = req.body[0].match_cvars;
+      // Already validated above: no quotes or separators, so values are stored as-is.
       for (let key in cvarInsertSet) {
         await db.query(cvarSql, [
           insertMatch.insertId,
-          key.replace(/"/g, '\\"'),
-          typeof cvarInsertSet[key] === "string"
-            ? cvarInsertSet[key].replace(/"/g, '\\"')
-            : cvarInsertSet[key]
+          key,
+          cvarInsertSet[key]
         ]);
       }
     }
@@ -1349,6 +1353,11 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
     );
     if (errMessage != null) {
       res.status(errMessage.status).json({ message: errMessage.message });
+      return;
+    }
+    const cvarError: string | null = Utils.validateCvars(req.body[0]?.match_cvars);
+    if (cvarError) {
+      res.status(412).json({ message: cvarError });
       return;
     } else {
       let currentMatchInfo: string =
