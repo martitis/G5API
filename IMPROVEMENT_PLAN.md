@@ -103,15 +103,18 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [ ] Per-match emitter channels (each stream currently re-queries on every match's event; performance only)
 - [ ] Rename Get5 wording in Swagger docs/types to MatchZy
 
-## Phase 3: G5V stabilization (Vue 2)
-- [ ] `api.vue` catch blocks null-safe; try/catch in `IsLoggedIn`
-- [ ] Anonymous user `id: null` everywhere (`App.vue:21`, `CreateMatch.vue:6`)
-- [ ] MatchesTable server/connect columns (`MatchesTable.vue:52-69`; `/matches` has no server fields)
-- [ ] NewMatchForm: `:true-value` + i18n key (`:313-316`), don't mutate season cvars (`:476`), guard ReloadServers (`:532`), Back without validate (`:326`)
-- [ ] Responsive navbar drawer (`Navbar.vue:47`)
-- [ ] `PlayerStatTable` SSE cleanup
-- [ ] Backup dialog uses the backend array
-- [ ] Adapt to the Phase 1 API changes (POST actions, masked RCON)
+## Phase 3: G5V stabilization (Vue 2) (G5V branch `phase3-stabilize`)
+- [x] `api.vue`: one shared axios instance (30s timeout); all 69 catch blocks use `errorMessage()` / `errorData()`; `IsLoggedIn` falls back to the anonymous user
+- [x] Login state: `id` is -1 while loading and null when logged out; the Navbar only shows logged-in menus after the check; CreateMatch shows a login hint to anonymous users
+- [x] MatchesTable: server columns only when the data has servers, Connect only for live matches, synchronous status building (the full redesign is Phase 5.0)
+- [x] NewMatchForm: season cvars copied, team/server errors handled, Back skips validation, ReloadServers guarded; the "Check Auths" switch was removed in Phase 2
+- [x] Responsive navbar drawer (permanent on md and up, slide-out on phones)
+- [x] `PlayerStatTable` SSE cleanup; VetoTable per-component streams and in-place side updates
+- [x] Backup dialog uses the backend array (Phase 1)
+- [x] Phase 1 API changes followed (POST actions, logout, masked RCON)
+- [x] Also fixed: TeamTable (nickname wiped on typing, silent save failures, `/teams/undefined`), Server/Login/Password dialogs, Seasons/Servers delete rows, User page, MatchCard ordering, leaderboard ADR, stray `/create` route
+- [x] Lint warnings 34 → 2
+- [ ] Not verified in a browser against a running API (no local MySQL); click through the main pages after deploying
 
 ## Phase 4: G5V → Vue 3 + Vuetify 3 + Vite + Pinia + TS
 - [ ] Scaffold; vue-i18n 9 (`fallbackLocale: 'en'`, `jp`→`ja`); axios 1.x; Node 20+
