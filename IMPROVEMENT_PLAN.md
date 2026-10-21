@@ -50,42 +50,58 @@ The line numbers are from the 2026-10-20 analysis and will drift, so search for 
 - [x] `__test__/unit.test.js` (no DB): parser, sanitizers, cvars, auth/404/upload checks. Run with `yarn test:unit`
 - [ ] **Open:** enforce `private_match` / `public_team` on reads and SSE streams; per-server cvar whitelist; many routes still return `err.toString()` in their own catch blocks (cleanup in Phase 2)
 
-## Phase 2: Backend bugs + MatchZy-native integration
-### Config builder (`matches.ts:1012-1139`, `build_team_dict :1666-1708`, `types/matches/MatchJson.ts`)
-- [ ] `maplist` always an array; spectators object (`:1128` uses an array, so they're never sent)
-- [ ] Send `clinch_series`, `veto_mode`, `map_sides` when set; coaches into `players`; `min_players_to_ready` default = 2×ppt
-- [ ] `matchzy_*` cvar names; drop `get5_check_auths`, `get5_web_api_url` and the `<0.13.1` branch; stop escaping `"`
+## Phase 2: Backend bugs + MatchZy-native integration (branch `phase2-matchzy` in both repos)
+Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySystem.cs, EventHandlers.cs, ConsoleCommands.cs).
+### Config builder (`src/services/matchconfig.ts`, unit tested; route `GET /matches/:id/config`)
+- [x] `maplist` always an array; empty pool or a pool smaller than `num_maps` returns 422 (MatchZy would reject the whole config)
+- [x] Spectators are sent (the object used to be built on an array, so it serialized as `[]`)
+- [x] Coaches are listed in `players` (MatchZy has no coach list; they type `.coach`)
+- [x] `min_players_to_ready` defaults to `players_per_team`. **Correction:** MatchZy counts it per team, not in total
+- [x] `clinch_series` sent; `map_sides` only when complete and valid; `side_type` / `veto_first` only with allowed values
+- [x] `matchzy_remote_log/backup/demo_upload` cvars (demo upload only when `server.uploadDemos`); dropped `get5_check_auths`, `get5_web_api_url` and the `<0.13.1` branch
+- [x] The config needs the match key or an owner/super-admin session (it was public whenever the plugin version was "unknown")
+- [x] `enforce_teams` has no MatchZy equivalent: MatchZy always kicks players who aren't on a roster. The G5V switch is removed
 ### RCON (`utility/serverrcon.ts`)
-- [ ] matchzy_* / css_* commands; remove `get5_addcoach` and `get5_web_api_key`
-- [ ] Confirm load via `get5_status` matchid; disconnect on error; guard JSON.parse; fix the `compare("unknown")` crash; correct endmatch result; forfeit via `css_endmatch team1|team2`
-- [ ] Check which `css_*` admin commands work from the RCON console on the deployed MatchZy
-### Backup list/restore bug (user-reported: extra characters sent on restore)
-- [ ] `getBackups()` returns `string[]`: split `/\r?\n/`, strip control chars, keep `^matchzy_\d+_\d+_round\d+\.json$` (+ legacy cfg) (`matchserver.ts:1010`)
-- [ ] `restoreBackup()`: exact match against the list, quoted `matchzy_loadbackup "<name>"`, check the response (`serverrcon.ts:362`)
-- [ ] G5V `MatchAdminButton.vue:424,507`: use the array, show "Map N – Round R" sorted desc
-- [ ] Unit test the parser with real output (`\r\n`, header, NUL)
+- [x] `matchzy_loadmatch_url`, then `get5_status` polled until `matchid` matches (failed loads are now reported)
+- [x] `css_endmatch [team1|team2]` (forfeits name the winner), `css_forcepause/forceunpause`, `matchzy_addplayer/removeplayer/listbackups/loadbackup(_url)`
+- [x] Add coach = add player to the team (no `get5_addcoach` in MatchZy)
+- [x] Safe JSON parsing, connection closed on errors, `compare-versions` removed
+- [ ] Verify the `css_*` admin commands from the RCON console on the deployed server (they accept a null player in MatchZy's source)
+### Backup list/restore bug: done in Phase 1
 ### Event webhook (`v2/api.ts`, `services/mapflowservices.ts`, `services/seriesflowservices.ts`)
-- [ ] Await all handlers, one try/catch, always respond; zod schema per event
-- [ ] Handle `series_start`, `player_disconnect`, `demo_upload_ended`
-- [ ] Null-safe attacker/assist/weapon (`mapflow:139`); non-roster players (`:133,:206`)
-- [ ] `OnGoingLive` responds when the row exists (`:70-79`); team2 pause string (`:387`); emit `playerStatsExtraUpdate` (`:160`)
-- [ ] `insert_id` → `insertId` (`seriesflow:82`); draw/none winner (`:101`, `challonge.ts:96`)
-- [ ] Store `trade_kills`; idempotent map_stats (unique match_id+map_number, upsert)
+- [x] Handlers awaited, every handler catches and always responds; `going_live` no longer hangs
+- [x] `series_start`, `player_disconnect` acknowledged; failed `demo_upload_ended` logged
+- [x] Null attacker/assist/weapon; players outside the rosters; team lookups scoped to the match; names/weapons fit their columns
+- [x] Team2 pause string; `playerStatsExtraUpdate` emitted; `insertId` fix; draw isn't credited to team2; Challonge errors don't fail events
+- [x] `backup_loaded` also drops bomb events; `round_restored` reset after cleanup
+- [x] `trade_kills` stored (migration `20261021120000`)
+- [x] Rate limiter keyed on the match key without a DB query
+- [ ] zod schema per event; unique (match_id, map_number) on map_stats (needs a data check before adding the key)
 ### Matches / server actions
-- [ ] Bomb SQL missing space (`matches.ts:778,862`); paused route param (`:726`); SSE newline (`:665`)
-- [ ] PUG cleanup SELECT (`:1372`); PUT in-use self-check (`:1389`); `!Object.keys(x)` → `.length === 0` (~12 sites)
-- [ ] Create in a transaction + `FOR UPDATE` on server in_use, 409 on conflict (`:1176`); DELETE cascades; `asc=false`/NaN limits
-- [ ] matchserver.ts: forfeit sets `forfeit=1` (`:103`); PUG winner compare (`:138`); await endmatch (`:142,:262`); swapped change-server params (`:1209`); restart cleanup
+- [x] Bomb SQL spaces, paused route param, pause SSE terminator, bomb stream sends all events
+- [x] Create: atomic server reservation (409), refuses offline/busy servers, undoes the match when MatchZy doesn't load it; 404 for missing server/teams
+- [x] Seasons can only be used by their owner (Challonge results go to the owner's tournament)
+- [x] PUT: team ids loaded for PUG cleanup, own server isn't "in use", ending frees the server, cvars replaced not duplicated
+- [x] DELETE cascades through `Utils.deleteMatchProgress` + cvars/spectators; unknown `all_cancelled` gets 400
+- [x] `?asc=false`, NaN limits, `!Object.keys(x)` checks (10 sites)
+- [x] matchserver: forfeit sets `forfeit=1` and the right PUG winner, awaits, works without a server; cancel awaits; restart clears everything and reports load failures
+- [x] MySQL 8 `ONLY_FULL_GROUP_BY`: match lists and player stats queries rewritten
 ### Stats / leaderboard
-- [ ] `getRating` arg order (`leaderboard.ts:489`); merge condition (`:455`); `.replace` regex (`:443`, `playerstats.ts:1021`)
-- [ ] Wins per match, teams by id, no N+1
-- [ ] extrastats (`:653,664,745,180,799`), `mapstats.ts:284`, `playerstats.ts:899` cross join; seasons cvars via `JSON_OBJECTAGG`
-### Challonge (`teams.ts:864-930`, `services/challonge.ts`)
-- [ ] Transaction, `getSteamPID` validation, set `name`, dedupe, encode id, handle error object
-- [ ] Merge the duplicate code from `legacy/api.ts:1636`; fix finalize URL and null crashes
+- [x] Player leaderboard: one query grouped by Steam ID (fixes the `getRating` argument shift, the name merge and the N+1 queries)
+- [x] Team leaderboard: one query by team id; wins/losses per series; round diff over all maps
+- [x] Wins count matches, not maps (leaderboards and player stats)
+- [x] Extras: lookups by victim/attacker Steam ID, PUT fixed, `deaths` column removed; `mapstats.ts` per-map stream refresh
+- [x] Season cvars built in code (no `GROUP_CONCAT` JSON)
+- [x] New `__test__/leaderboard.test.js` suite (passes on MySQL 8 in CI)
+### Challonge (`teams.ts` import, `services/challonge.ts`)
+- [x] Import: dedupe on `challonge_team_id`, `getSteamPID` conversion (non-Steam values skipped and reported), names set, encoded ids, 502 on Challonge errors
+- [x] Sync: no crashes on missing season/team/key/open match, draws reported as ties, finalize check and URL fixed
+- [ ] The import isn't wrapped in a DB transaction (the db wrapper has no transaction helper yet)
 ### Cleanup / SSE
-- [ ] Delete `routes/legacy/api.ts` and Get5-only types; rename Get5 → MatchZy in docs/Swagger; remove dead code
-- [ ] Per-match emitter channels, 25s heartbeat, `setMaxListeners(0)`, listener removal on close
+- [x] `routes/legacy/api.ts` deleted; `yarn build` cleans `dist/`
+- [x] SSE: 25s heartbeat on every `/stream`, emitter listener cap removed
+- [ ] Per-match emitter channels (each stream currently re-queries on every match's event; performance only)
+- [ ] Rename Get5 wording in Swagger docs/types to MatchZy
 
 ## Phase 3: G5V stabilization (Vue 2)
 - [ ] `api.vue` catch blocks null-safe; try/catch in `IsLoggedIn`
