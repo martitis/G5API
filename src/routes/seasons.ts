@@ -86,8 +86,8 @@ import { SeasonCvarObject } from "../types/seasons/SeasonCvarObject.js";
 router.get("/", async (req, res, next) => {
   try {
     let sql: string =
-      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date " +
-      "FROM season s ";
+      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, u.name AS owner " +
+      "FROM season s LEFT JOIN user u ON u.id = s.user_id ";
     let seasons: RowDataPacket[] = await db.query(sql);
     if (!seasons.length) {
       res.status(404).json({ message: "No seasons found." });
@@ -128,8 +128,8 @@ router.get("/", async (req, res, next) => {
 router.get("/myseasons", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     let sql: string =
-      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date " +
-      "FROM season s " +
+      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, u.name AS owner " +
+      "FROM season s LEFT JOIN user u ON u.id = s.user_id " +
       "WHERE s.user_id = ? ";
     let seasons: RowDataPacket[] = await db.query(sql, [req.user?.id]);
     if (!seasons.length) {
