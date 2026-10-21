@@ -17,6 +17,11 @@ const dbCfg = {
   connectionLimit: config.get(env + ".connectionLimit")
 } as PoolOptions;
 const connPool = createPool(dbCfg);
+// Team member lists and season cvars are built with GROUP_CONCAT, which MySQL cuts at
+// 1024 bytes by default (big teams came back as invalid JSON).
+connPool.on("connection", (conn) => {
+  conn.query("SET SESSION group_concat_max_len = 1048576");
+});
 
 class Database {
   constructor() {

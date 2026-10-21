@@ -296,8 +296,7 @@ router.get("/:season_id", async (req, res, next) => {
     const season: string = JSON.parse(JSON.stringify(seasons[0]));
     res.json({ matches, season });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -418,9 +417,8 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
     res.status(404).json({ message: "No season found." });
     return;
   } else if (
-    req.user &&
-    seasonRow[0].user_id != req.user.id &&
-    !Utils.superAdminCheck(req.user)
+    seasonRow[0].user_id != req.user!.id &&
+    !Utils.superAdminCheck(req.user!)
   ) {
     res
       .status(403)

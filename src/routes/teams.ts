@@ -227,11 +227,11 @@ router.get("/:team_id", async (req, res) => {
   try {
     let teamID: number = parseInt(req.params.team_id);
     let sql: string =
-      "SELECT t.id, t.user_id, t.name, t.flag, t.logo, t.tag, t.public_team, " +
+      "SELECT usr.name as owner, t.id, t.user_id, t.name, t.flag, t.logo, t.tag, t.public_team, " +
       "CONCAT('{', GROUP_CONCAT( DISTINCT CONCAT('\"',ta.auth, '\"', ': " +
       "{ \"name\": ', CAST(JSON_QUOTE(ta.name) AS CHAR CHARACTER SET utf8mb4), ', \"captain\": ', ta.captain, ', \"coach\": ', ta.coach, '}') ORDER BY ta.captain desc, ta.id  SEPARATOR ', '), '}') as auth_name " +
       "FROM team t LEFT OUTER JOIN team_auth_names ta " +
-      "ON t.id = ta.team_id " +
+      "ON t.id = ta.team_id LEFT JOIN user usr ON usr.id = t.user_id " +
       "WHERE t.id = ? " +
       "GROUP BY t.id";
     let team: RowDataPacket[] = await db.query(sql, [teamID]);
@@ -568,68 +568,42 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", Utils.ensureAuthenticated, async (req, res) => {
-  let teamID: number = req.body[0].team_id;
-  let checkUserSql: string = "SELECT * FROM team WHERE id = ?";
-  const checkUser: RowDataPacket[] = await db.query(checkUserSql, [teamID]);
-  if (checkUser[0] == null) {
-    res.status(404).json({ message: "Team does not exist." });
-    return;
-  } else if (
-    req.user &&
-    checkUser[0].user_id != req.user.id &&
-    !Utils.superAdminCheck(req.user)
-  ) {
-    res
-      .status(403)
-      .json({ message: "User is not authorized to perform action." });
-    return;
-  } else if (req.body[0].steam_id != null) {
-    let deleteSql: string =
-      "DELETE FROM team_auth_names WHERE auth = ? AND team_id = ?";
-    let steamAuth: string = req.body[0].steam_id;
-    try {
-      await db.query(deleteSql, [steamAuth, teamID]);
+router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    let teamID: number = req.body[0]?.team_id;
+    let checkUserSql: string = "SELECT * FROM team WHERE id = ?";
+    const checkUser: RowDataPacket[] = await db.query(checkUserSql, [teamID]);
+    if (checkUser[0] == null) {
+      res.status(404).json({ message: "Team does not exist." });
+      return;
+    } else if (
+      checkUser[0].user_id != req.user!.id &&
+      !Utils.superAdminCheck(req.user!)
+    ) {
+      res
+        .status(403)
+        .json({ message: "User is not authorized to perform action." });
+      return;
+    } else if (req.body[0].steam_id != null) {
+      let deleteSql: string =
+        "DELETE FROM team_auth_names WHERE auth = ? AND team_id = ?";
+      await db.query(deleteSql, [req.body[0].steam_id, teamID]);
       res.json({ message: "Team member deleted successfully!" });
-    } catch (err) {
-      res.status(500).json({ message: (err as Error).toString() });
-    }
-  } else {
-    try {
-      // Remove file if exists.
-      if (checkUser[0].logo) {
-        try {
-          unlink(
-            "public/img/logos/" + checkUser[0].logo + ".png",
-            err => {
-              if (err) {
-                console.error(err);
-              }
-            }
-          );
-        } catch (ignored) {}
-        
-        try {
-          unlink(
-            "public/img/logos/" + checkUser[0].logo + ".svg",
-            err => {
-              if (err) {
-                console.error(err);
-              }
-            }
-          );
-        } catch (ignored) {}
-      }
-      let deleteTeamAuthSql: string = "DELETE FROM team_auth_names WHERE team_id = ?";
-      let deleteTeamsql: string = "DELETE FROM team WHERE id = ?";
-      await db.query(deleteTeamAuthSql, [teamID]);
-      await db.query(deleteTeamsql, [teamID]);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
       return;
     }
+    // Remove the logo file if it exists.
+    if (checkUser[0].logo) {
+      for (const ext of [".png", ".svg"]) {
+        unlink("public/img/logos/" + checkUser[0].logo + ext, (err) => {
+          if (err && err.code !== "ENOENT") console.error(err);
+        });
+      }
+    }
+    await db.query("DELETE FROM team_auth_names WHERE team_id = ?", [teamID]);
+    await db.query("DELETE FROM team WHERE id = ?", [teamID]);
     res.json({ message: "Team has been deleted successfully!" });
+  } catch (err) {
+    next(err);
   }
 });
 
