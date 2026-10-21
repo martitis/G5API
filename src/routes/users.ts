@@ -60,9 +60,6 @@ import { UserObject } from "../types/users/UserObject.js";
  *         old_password:
  *           type: string
  *           description: The old password provided by the user to check validity.
- *         force_reset:
- *           type: boolean
- *           description: If a user requires a force reset/remove password, update the password to NULL. 
  *         challonge_api_key:
  *           type: string
  *           description: A [challonge API](https://challonge.com/settings/developer) key
@@ -346,9 +343,9 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
         challonge_api_key: isSelf ? challongeApiKey : null
       };
     } else if (isSelf) {
-      if (req.body[0].force_reset) {
-        await db.query("UPDATE user SET password = NULL WHERE id = ?", [target.id]);
-      } else if (password && target.password) {
+      // Changing an existing password always needs the old one (the old panel's force_reset
+      // flag used to skip this check). Only super admins can force-set a password.
+      if (password && target.password) {
         const isOldPassMatching = await compare(String(oldPassword), target.password);
         if (!isOldPassMatching) {
           res.status(403).json({ message: "Old password does not match." });
@@ -379,11 +376,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
     }
     updateUser = await db.buildUpdateStatement(updateUser);
     if (Object.keys(updateUser).length === 0) {
-      if (req.body[0].force_reset && isSelf) {
-        res.status(200).json({ message: "User successfully updated!" });
-      } else {
-        res.status(412).json({ message: "No update data has been provided." });
-      }
+      res.status(412).json({ message: "No update data has been provided." });
       return;
     }
     let sql: string = "UPDATE user SET ? WHERE id = ?";

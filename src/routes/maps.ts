@@ -51,6 +51,18 @@ import { MapObject } from "../types/maps/MapObject.js";
  *               type: integer
  */
 
+/** Map names go into the MatchZy maplist: plain names like de_mirage or workshop paths. */
+const MAP_NAME = /^[A-Za-z0-9_./-]{1,128}$/;
+const invalidMapField = (body: any, requireAll: boolean): string | null => {
+  if ((requireAll || body?.map_name != null) && !MAP_NAME.test(String(body?.map_name ?? ""))) {
+    return "Map name may only contain letters, digits and _ . / -";
+  }
+  if ((requireAll || body?.map_display_name != null) && !String(body?.map_display_name ?? "").trim()) {
+    return "A display name is required.";
+  }
+  return null;
+};
+
 /**
  * @swagger
  *
@@ -73,15 +85,14 @@ import { MapObject } from "../types/maps/MapObject.js";
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     let sql: string =
       "SELECT * FROM map_list";
     const maplist: RowDataPacket[] = await db.query(sql);
     res.json({ maplist });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -122,8 +133,7 @@ router.get("/:user_id", async (req, res, next) => {
     else
       res.status(404).json({message: "Maplist does not exist in the system for given user."});
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -164,8 +174,7 @@ router.get("/:user_id/enabled", async (req, res, next) => {
     else
       res.status(404).json({message: "Maplist does not exist in the system for given user."});
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -199,6 +208,11 @@ router.get("/:user_id/enabled", async (req, res, next) => {
  */
 router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
+    const fieldError = invalidMapField(req.body[0], true);
+    if (fieldError) {
+      res.status(412).json({ message: fieldError });
+      return;
+    }
     let userID: number = req.user!.id;
     let enabled: boolean = req.body[0].enabled == null
       ? true
@@ -220,8 +234,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
     res.json({ message: "MapList created successfully.", id: newMapID });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -263,6 +276,11 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
     return;
   }
   try {
+    const fieldError = invalidMapField(req.body[0], false);
+    if (fieldError) {
+      res.status(412).json({ message: fieldError });
+      return;
+    }
     let userID: number = req.user!.id;
     let mapListId: number = parseInt(req.body[0].id);
     let enabled: boolean = req.body[0].enabled == null
@@ -277,12 +295,15 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
     // Check if user is allowed to create?
     let sql: string =
       "UPDATE map_list SET ? WHERE id = ? AND user_id = ?";
-    await db.query(sql, [insertSet, mapListId, userID]);
+    const updated: any = await db.query(sql, [insertSet, mapListId, userID]);
+    if (!updated.affectedRows) {
+      res.status(404).json({ message: "Map not found in your map list." });
+      return;
+    }
     res.json({ message: "Map updated successfully." });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -329,11 +350,14 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
     // Check if user is allowed to create?
     let sql: string =
       "DELETE FROM map_list WHERE id = ? AND user_id = ?";
-    await db.query(sql, [mapListId, userID]);
+    const deleted: any = await db.query(sql, [mapListId, userID]);
+    if (!deleted.affectedRows) {
+      res.status(404).json({ message: "Map not found in your map list." });
+      return;
+    }
     res.json({ message: "Map deleted successfully." });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
