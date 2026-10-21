@@ -35,7 +35,8 @@ export default tseslint.config(
       "no-unsafe-finally": "warn",
       "@typescript-eslint/no-misused-promises": "warn",
       "@typescript-eslint/no-floating-promises": "warn",
-      "@typescript-eslint/no-unused-vars": "warn",
+      // A leading underscore marks parameters that must exist (e.g. Express error handlers).
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/unbound-method": "warn",
       "@typescript-eslint/ban-ts-comment": "warn",
       "@typescript-eslint/no-unnecessary-type-assertion": "warn",

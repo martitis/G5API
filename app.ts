@@ -22,6 +22,7 @@ import indexRouter from "./src/routes/index.js";
 import leaderboardRouter from "./src/routes/leaderboard.js";
 import mapListRouter from "./src/routes/maps.js";
 import mapstatsRouter from "./src/routes/mapstats.js";
+import metricsRouter from "./src/routes/metrics.js";
 import matchesRouter from "./src/routes/matches/matches.js";
 import matchServerRouter from "./src/routes/matches/matchserver.js";
 import playerstatsRouter from "./src/routes/playerstats/playerstats.js";
@@ -108,7 +109,7 @@ if (config.get("server.useRedis")) {
     cookie: sessionCookie,
   });
   process.on("exit", function () {
-    redisClient.quit();
+    void redisClient.quit();
   });
 } else {
   sessionType = session({
@@ -188,6 +189,7 @@ app.use("/playerstatsextra", playerstatsextraRouter);
 app.use("/seasons", seasonsRouter);
 app.use("/leaderboard", leaderboardRouter);
 app.use("/maps", mapListRouter);
+app.use("/metrics", metricsRouter);
 app.use("/v2", v2Router);
 app.use("/v2/demo", v2DemoRouter);
 app.use("/v2/backup", v2BackupRouter);
@@ -236,7 +238,8 @@ const authRateLimit = rateLimit({
   message: { message: "Too many attempts, please try again later." }
 });
 
-const localAuthFailure = (err: any, req: any, res: any, next: any) => {
+// Express only treats 4-argument middleware as an error handler, so _next must stay.
+const localAuthFailure = (err: any, req: any, res: any, _next: any) => {
   const messages: string[] = req.session?.messages ?? [];
   return res
     .status(err.status || 401)

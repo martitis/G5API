@@ -40,3 +40,18 @@ describe("Test the leaderboard routes", () => {
     await request.get("/leaderboard/1").expect(200);
   });
 });
+
+describe("Test the metrics route", () => {
+  it("Should return every counter as a number.", () => {
+    return request
+      .get("/metrics")
+      .expect(200)
+      .expect((result) => {
+        const { metrics } = result.body;
+        for (const key of ["users", "teams", "matches", "completed_matches", "live_matches", "servers", "maps_played", "players", "seasons"]) {
+          expect(typeof metrics[key]).toBe("number");
+        }
+        expect(metrics.users).toBeGreaterThan(0);
+      });
+  });
+});
