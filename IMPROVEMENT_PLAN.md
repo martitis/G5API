@@ -116,15 +116,23 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] Lint warnings 34 → 2
 - [ ] Not verified in a browser against a running API (no local MySQL); click through the main pages after deploying
 
-## Phase 4: G5V → Vue 3 + Vuetify 3 + Vite + Pinia + TS
-- [ ] Scaffold; vue-i18n 9 (`fallbackLocale: 'en'`, `jp`→`ja`); axios 1.x; Node 20+
-- [ ] Typed `src/api/*.ts` modules on one axios instance + interceptors (replaces the global mixin)
-- [ ] Runtime `/config.json` for the API URL
-- [ ] Pinia `auth` + `ui` stores; `useEventSource` composable; router guards; fix `/teams/create`
-- [ ] Port all views; every form gets loading, double-submit guard, toasts, validation
-- [ ] Server-side pagination; `/metrics` counts endpoint
-- [ ] Branding (drop "Get5Vue"), MatchZy help links, self-hosted fonts/icons, i18n completeness check
-- [ ] nginx/Caddy config: cache headers, compression, security headers
+## Phase 4: G5V → Vue 3 + Vuetify 4 + Vite + Pinia + TS (worktree `../G5V-next`, branch `phase4-vue3`)
+- [x] Scaffold: Vite 8, Vue 3.5, Vuetify 4, vue-router 5, Pinia 4, vue-i18n 11 (`fallbackLocale: 'en'`, `jp`→`ja`),
+  axios 1, TS strict, Node 22; exact dependency pins
+- [x] Typed `src/api/*.ts` modules on one axios instance (`ApiError`, timeout) replace the global mixin
+- [x] Runtime `/config.json` for the API URL and panel name
+- [x] Pinia `auth` + `ui` stores; `useEventSource` composable; router guards; `/teams/create` route fixed
+- [x] All views ported (home, matches, match, create match, teams/team, servers, seasons/season, user,
+  leaderboards, metrics); forms have loading, double-submit guard, toasts and client-side validation
+- [x] Match page: one combined SSE stream (`GET /matches/:id/live/stream`) instead of five; admin menu with config
+  preview and server console output
+- [x] `/metrics` counts endpoint
+- [ ] Server-side pagination → done with the Phase 5 match list redesign (paged summary endpoint)
+- [x] Branding (panel name from config.json), MatchZy help links, self-hosted fonts/icons, i18n check in CI
+- [x] nginx/Caddy config: cache headers, compression, security headers, SPA fallback, `/api` proxy with SSE settings
+- [x] Backend fixes found while porting: `group_concat_max_len` (big teams' member JSON was cut), password change
+  always needs the old password, map list validation, Challonge season import, team owner name, lint cap 681
+- [ ] Merge `phase4-vue3` into G5V (after a manual check of every page against a running API)
 
 ## Phase 5: Features
 - [ ] **5.0 Match list redesign:** single-SQL summary endpoint (series score, status, current map + round score + sides), `/matches/live/stream`, card rows with W/L badges, LIVE/PAUSED chips, per-map mini scores, filters, mobile layout; reuse it on Home
