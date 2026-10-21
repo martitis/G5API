@@ -23,6 +23,7 @@ import { unlink } from "fs";
 import { writeFile } from "fs/promises";
 
 import fetch from "node-fetch";
+import { importParticipants, type ChallongeParticipant } from "../services/challonge.js";
 import { RowDataPacket } from "mysql2";
 import { TeamData } from "../types/teams/TeamData.js";
 import { AuthData } from "../types/teams/AuthData.js";
@@ -821,13 +822,7 @@ router.post("/challonge", Utils.ensureAuthenticated, async (req, res, next) => {
       "https://api.challonge.com/v1/tournaments/" + encodeURIComponent(tournamentId) +
         "/participants.json?api_key=" + encodeURIComponent(challongeAPIKey)
     );
-    let challongeData = (await challongeResponse.json()) as Array<{
-      participant: {
-        id: number;
-        display_name: string;
-        custom_field_response?: Record<string, string> | null;
-      };
-    }>;
+    let challongeData = (await challongeResponse.json()) as ChallongeParticipant[];
 
     if (!challongeResponse.ok || !Array.isArray(challongeData)) {
       res.status(502).json({ message: "Challonge did not return the participants of tournament " + tournamentId + "." });
@@ -838,57 +833,11 @@ router.post("/challonge", Utils.ensureAuthenticated, async (req, res, next) => {
       return;
     }
 
-    let imported: number = 0;
-    let skippedIds: string[] = [];
-    for (let team of challongeData) {
-      let displayName: string = team.participant.display_name.substring(0, 40);
-      let challongeTeamId: number = team.participant.id;
-
-      // Importing the same tournament again updates the teams instead of duplicating them.
-      const existing: RowDataPacket[] = await db.query(
-        "SELECT id FROM team WHERE user_id = ? AND challonge_team_id = ?",
-        [userID, challongeTeamId]
-      );
-      let teamID: number;
-      if (existing.length) {
-        teamID = existing[0].id;
-        await db.query("UPDATE team SET name = ?, tag = ? WHERE id = ?", [displayName, displayName, teamID]);
-      } else {
-        let insertResult: any = await db.query(
-          "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES (?, ?, ?, ?)",
-          [userID, displayName, displayName, challongeTeamId]
-        );
-        teamID = insertResult.insertId;
-        imported++;
-      }
-
-      // Custom fields of the sign-up form may hold the players' Steam IDs or profile URLs.
-      // The first valid one is the captain; anything that isn't a Steam account is skipped.
-      let isFirstPlayer: boolean = true;
-      for (let value of Object.values(team.participant.custom_field_response ?? {})) {
-        if (!value) continue;
-        const steamId: string = await Utils.getSteamPID(String(value));
-        if (!steamId) {
-          skippedIds.push(String(value));
-          continue;
-        }
-        const member: RowDataPacket[] = await db.query(
-          "SELECT id FROM team_auth_names WHERE team_id = ? AND auth = ?",
-          [teamID, steamId]
-        );
-        if (!member.length) {
-          await db.query(
-            "INSERT INTO team_auth_names (team_id, auth, name, captain) VALUES (?, ?, ?, ?)",
-            [teamID, steamId, "", isFirstPlayer ? 1 : 0]
-          );
-        }
-        isFirstPlayer = false;
-      }
-    }
+    const { imported, updated, skipped: skippedIds } = await importParticipants(userID, challongeData);
 
     res.json({
       message:
-        `Challonge teams imported successfully! ${imported} new, ${challongeData.length - imported} updated.` +
+        `Challonge teams imported successfully! ${imported} new, ${updated} updated.` +
         (skippedIds.length ? ` Skipped values that are not Steam IDs: ${skippedIds.join(", ")}` : "")
     });
   } catch (err) {

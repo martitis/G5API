@@ -120,3 +120,70 @@ async function update_challonge_match(
     GlobalEmitter.emit("seasonUpdate");
   }
 }
+
+/** A participant as the Challonge v1 API returns it. */
+export type ChallongeParticipant = {
+  participant: {
+    id: number;
+    display_name: string;
+    custom_field_response?: Record<string, string> | null;
+  };
+};
+
+/** Creates or updates one team per Challonge participant (re-importing a tournament doesn't duplicate teams).
+ * Custom fields of the sign-up form may hold the players' Steam IDs or profile URLs: the first valid one
+ * becomes the captain, values that aren't Steam accounts are skipped.
+ * @function
+ * @memberof module:services/challonge
+ * @param {number} userId - Owner of the imported teams.
+ * @param {ChallongeParticipant[]} participants - From /participants.json or a tournament's participants.
+ * @returns How many teams were created and updated, and the skipped custom field values.
+ */
+export async function importParticipants(
+  userId: number,
+  participants: ChallongeParticipant[]
+): Promise<{ imported: number; updated: number; skipped: string[] }> {
+  let imported: number = 0;
+  const skipped: string[] = [];
+  for (const team of participants) {
+    const displayName: string = String(team.participant.display_name ?? "").substring(0, 40);
+    const challongeTeamId: number = team.participant.id;
+    const existing: RowDataPacket[] = await db.query(
+      "SELECT id FROM team WHERE user_id = ? AND challonge_team_id = ?",
+      [userId, challongeTeamId]
+    );
+    let teamId: number;
+    if (existing.length) {
+      teamId = existing[0].id;
+      await db.query("UPDATE team SET name = ?, tag = ? WHERE id = ?", [displayName, displayName, teamId]);
+    } else {
+      const insertResult: any = await db.query(
+        "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES (?, ?, ?, ?)",
+        [userId, displayName, displayName, challongeTeamId]
+      );
+      teamId = insertResult.insertId;
+      imported++;
+    }
+    let isFirstPlayer: boolean = true;
+    for (const value of Object.values(team.participant.custom_field_response ?? {})) {
+      if (!value) continue;
+      const steamId: string = await Utils.getSteamPID(String(value));
+      if (!steamId) {
+        skipped.push(String(value));
+        continue;
+      }
+      const member: RowDataPacket[] = await db.query(
+        "SELECT id FROM team_auth_names WHERE team_id = ? AND auth = ?",
+        [teamId, steamId]
+      );
+      if (!member.length) {
+        await db.query(
+          "INSERT INTO team_auth_names (team_id, auth, name, captain) VALUES (?, ?, ?, ?)",
+          [teamId, steamId, "", isFirstPlayer ? 1 : 0]
+        );
+      }
+      isFirstPlayer = false;
+    }
+  }
+  return { imported, updated: participants.length - imported, skipped };
+}

@@ -632,6 +632,109 @@ router.get("/:match_id/stream", async (req, res, next) => {
 /**
  * @swagger
  *
+ * /matches/:match_id/live/stream:
+ *   get:
+ *     description: >
+ *       Everything the match page shows, as one server sent event stream (browsers allow only six
+ *       HTTP/1.1 connections per host, so one stream per dataset could stall the page).
+ *       Events - matches (object), mapstats, playerstats, vetodata, vetosidedata (arrays). Each event
+ *       is sent once on connect and again whenever that data changes.
+ *     produces:
+ *       - text/event-stream
+ *     parameters:
+ *       - name: match_id
+ *         required: true
+ *         schema:
+ *          type: integer
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: The live match data stream.
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.get("/:match_id/live/stream", async (req, res, next) => {
+  try {
+    const matchID: number = parseInt(req.params.match_id);
+    const matchRow: RowDataPacket[] = await db.query("SELECT user_id FROM `match` WHERE id = ?", [matchID]);
+    if (!matchRow.length) {
+      res.status(404).json({ message: "No match found." });
+      return;
+    }
+    const fullAccess: boolean =
+      req.user !== undefined && (matchRow[0].user_id == req.user.id || Utils.superAdminCheck(req.user));
+    const matchSql: string = fullAccess
+      ? "SELECT * FROM `match` WHERE id = ?"
+      : "SELECT id, user_id, server_id, team1_id, team2_id, winner, " +
+        "team1_score, team2_score, team1_series_score, team2_series_score, " +
+        "team1_string, team2_string, cancelled, forfeit, start_time, end_time, " +
+        "max_maps, title, skip_veto, private_match, enforce_teams, min_player_ready, " +
+        "season_id, is_pug, map_sides FROM `match` WHERE id = ?";
+    // emitter event -> SSE event name and the query that rebuilds it.
+    const datasets: Record<string, { event: string; sql: string; single?: boolean }> = {
+      matchUpdate: { event: "matches", sql: matchSql, single: true },
+      mapStatUpdate: { event: "mapstats", sql: "SELECT * FROM map_stats WHERE match_id = ? ORDER BY map_number" },
+      playerStatsUpdate: { event: "playerstats", sql: "SELECT * FROM player_stats WHERE match_id = ?" },
+      vetoUpdate: { event: "vetodata", sql: "SELECT * FROM veto WHERE match_id = ? ORDER BY id" },
+      vetoSideUpdate: { event: "vetosidedata", sql: "SELECT * FROM veto_side WHERE match_id = ? ORDER BY id" }
+    };
+
+    res.set({
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Content-Type": "text/event-stream",
+      "X-Accel-Buffering": "no"
+    });
+    res.flushHeaders();
+
+    let closed = false;
+    const send = async (key: string): Promise<void> => {
+      const dataset = datasets[key];
+      const rows: RowDataPacket[] = await db.query(dataset.sql, [matchID]);
+      const data = dataset.single ? (rows[0] ?? null) : rows;
+      if (!closed) res.write(`event: ${dataset.event}
+data: ${JSON.stringify(data)}
+
+`);
+    };
+    // Game events arrive in bursts (one round_end updates every player), so coalesce them.
+    const timers: Record<string, NodeJS.Timeout> = {};
+    const listeners: Record<string, () => void> = {};
+    for (const key of Object.keys(datasets)) {
+      listeners[key] = () => {
+        if (timers[key]) return;
+        timers[key] = setTimeout(() => {
+          delete timers[key];
+          send(key).catch((err) => console.error("Live stream query failed:", err));
+        }, 250);
+      };
+      GlobalEmitter.on(key, listeners[key]);
+    }
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      for (const key of Object.keys(datasets)) {
+        GlobalEmitter.removeListener(key, listeners[key]);
+        clearTimeout(timers[key]);
+      }
+      res.end();
+    };
+    req.on("close", cleanup);
+    for (const key of Object.keys(datasets)) await send(key);
+  } catch (err) {
+    if (res.headersSent) {
+      console.error("Live stream failed:", err);
+      res.end();
+    } else {
+      next(err);
+    }
+  }
+});
+
+/**
+ * @swagger
+ *
  * /matches/:match_id/paused/stream:
  *   get:
  *     description: Get the pause information on a match streamed as a server sent event.

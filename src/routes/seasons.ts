@@ -7,6 +7,7 @@
 import { Router } from "express";
 
 import fetch from "node-fetch";
+import { importParticipants, type ChallongeParticipant } from "../services/challonge.js";
 
 const router = Router();
 
@@ -573,56 +574,53 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
 router.post("/challonge", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     const userInfo: RowDataPacket[] = await db.query("SELECT challonge_api_key FROM user WHERE id = ?", [req.user!.id]);
-    let challongeAPIKey: string | undefined | null = Utils.decrypt(userInfo[0].challonge_api_key);
+    const challongeAPIKey: string | undefined | null = Utils.decrypt(userInfo[0]?.challonge_api_key);
+    const tournamentId: string = String(req.body[0]?.tournament_id ?? "").trim();
     if (!challongeAPIKey) {
-      throw "No challonge API key provided for user.";
+      res.status(412).json({ message: "No challonge API key provided for user." });
+      return;
     }
-    let tournamentId: string = req.body[0].tournament_id;
-    let challongeResponse: any = await fetch(
-      "https://api.challonge.com/v1/tournaments/" +
-      tournamentId +
-      ".json?api_key=" +
-      challongeAPIKey +
-      "&include_participants=1");
-    let challongeData = await challongeResponse.json()
-    if (challongeData) {
-      // Insert the season.
-      let sqlString: string = "INSERT INTO season SET ?";
-      let seasonData: SeasonObject = {
-        user_id: req.user?.id,
-        name: challongeData.tournament.name,
-        start_date: new Date(challongeData.tournament.created_at),
-        is_challonge: true,
-        challonge_svg: challongeData.tournament.live_image_url,
-        challonge_url: tournamentId
+    if (!tournamentId) {
+      res.status(412).json({ message: "Please provide the Challonge tournament ID." });
+      return;
+    }
+    const challongeResponse = await fetch(
+      "https://api.challonge.com/v1/tournaments/" + encodeURIComponent(tournamentId) +
+        ".json?api_key=" + encodeURIComponent(challongeAPIKey) + "&include_participants=1"
+    );
+    const challongeData = (await challongeResponse.json()) as {
+      tournament?: {
+        name: string;
+        created_at: string;
+        live_image_url?: string;
+        participants?: ChallongeParticipant[];
       };
-      const insertSeason: RowDataPacket[] = await db.query(sqlString, seasonData);
-      // Check if teams were already in the call and add them to the database.
-      if (req.body[0]?.import_teams && challongeData.tournament.participants) {
-        sqlString = "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES ?";
-        let teamArray: Array<Array<Object>> = [];
-        challongeData.tournament.participants.forEach(async (team: { participant: { display_name: string; id: Object; }; }) => {
-          teamArray.push([
-            req.user!.id,
-            team.participant.display_name.substring(0, 40),
-            team.participant.display_name.substring(0, 40),
-            team.participant.id
-          ]);
-        });
-        await db.query(sqlString, [teamArray]);
-      }
-      res.json({
-        message: "Challonge season imported successfully!",
-        chal_res: challongeData.tournament.created_at,
-        //@ts-ignore
-        id: insertSeason.insertId,
-      });
+    };
+    const tournament = challongeData?.tournament;
+    if (!challongeResponse.ok || !tournament) {
+      res.status(502).json({ message: "Challonge did not return tournament " + tournamentId + "." });
+      return;
     }
-
-    
+    const seasonData: SeasonObject = {
+      user_id: req.user!.id,
+      name: tournament.name,
+      start_date: new Date(tournament.created_at),
+      is_challonge: true,
+      challonge_svg: tournament.live_image_url,
+      challonge_url: tournamentId
+    };
+    const insertSeason: any = await db.query("INSERT INTO season SET ?", [seasonData]);
+    let teamsMessage: string = "";
+    if (req.body[0]?.import_teams && tournament.participants?.length) {
+      const result = await importParticipants(req.user!.id, tournament.participants);
+      teamsMessage = ` Teams: ${result.imported} new, ${result.updated} updated.`;
+    }
+    res.json({
+      message: "Challonge season imported successfully!" + teamsMessage,
+      id: insertSeason.insertId
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
