@@ -680,6 +680,7 @@ class Utils {
       firstkill_ct: player.stats?.first_kills_ct,
       firstkill_t: player.stats?.first_kills_t,
       kast: player.stats?.kast,
+      trade_kills: player.stats?.trade_kills,
       contribution_score: player.stats?.score,
       mvp: player.stats?.mvp
     };

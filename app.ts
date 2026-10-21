@@ -139,6 +139,18 @@ app.use(
 // adding morgan to log HTTP requests
 app.use(morgan("combined"));
 
+// Server-sent event streams: a comment line every 25s keeps idle connections open through nginx/Caddy and
+// browsers. SSE clients ignore comment lines.
+app.use((req, res, next) => {
+  if (req.method === "GET" && req.path.endsWith("/stream")) {
+    const heartbeat = setInterval(() => {
+      if (res.headersSent && !res.writableEnded) res.write(": keep-alive\n\n");
+    }, 25000);
+    res.on("close", () => clearInterval(heartbeat));
+  }
+  next();
+});
+
 // swagger UI
 
 const options = {
