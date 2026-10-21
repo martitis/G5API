@@ -368,7 +368,7 @@ import { AccessMessage } from "../../types/mapstats/AccessMessage.js";
 router.get("/", async (req, res, next) => {
   try {
     let isAscending: boolean =
-      String(req.query?.asc) === "true";
+      req.query?.asc === "true";
     let sql: string =
       "SELECT mtch.id, mtch.user_id, mtch.server_id, mtch.team1_id, mtch.team2_id, mtch.winner, mtch.team1_score, " +
       "mtch.team2_score, mtch.team1_series_score, mtch.team2_series_score, mtch.team1_string, mtch.team2_string, " +
@@ -432,7 +432,7 @@ router.get("/", async (req, res, next) => {
 router.get("/mymatches", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     let isAscending: boolean =
-      String(req.query?.asc) === "true";
+      req.query?.asc === "true";
 
     let sql: string = `
       SELECT mtch.id, mtch.user_id, mtch.server_id, mtch.team1_id, mtch.team2_id, mtch.winner, 

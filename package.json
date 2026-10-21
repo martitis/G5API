@@ -29,8 +29,8 @@
     "config": "./config"
   },
   "scripts": {
-    "build": "tsc",
-    "lint": "eslint . --max-warnings=1146",
+    "build": "yarn clean && tsc",
+    "lint": "eslint . --max-warnings=923",
     "format": "prettier --write",
     "clean": "node -e \"require('fs').rmSync('./dist',{recursive:true,force:true})\"",
     "start": "tsc-watch --project . --outDir ./dist --onSuccess \"nodemon ./dist/bin/www.js\"",
@@ -73,7 +73,6 @@
     "@node-steam/id": "^1.2.0",
     "aes-js": "^3.1.2",
     "bcrypt": "^5.1.1",
-    "compare-versions": "^6.1.0",
     "config": "^3.3.11",
     "connect-redis": "^7.1.1",
     "cookie-parser": "~1.4.6",

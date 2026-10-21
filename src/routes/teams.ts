@@ -826,19 +826,27 @@ router.get("/:team_id/result/:match_id", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/challonge", Utils.ensureAuthenticated, async (req, res) => {
+router.post("/challonge", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     let userID: number = req.user!.id;
     const userInfo: RowDataPacket[] = await db.query("SELECT challonge_api_key FROM user WHERE id = ?", [userID]);
-    let challongeAPIKey: string | undefined | null = Utils.decrypt(userInfo[0].challonge_api_key);
-    let tournamentId: string = req.body[0].tournament_id;
+    let challongeAPIKey: string | undefined | null = Utils.decrypt(userInfo[0]?.challonge_api_key);
+    let tournamentId: string = String(req.body[0]?.tournament_id ?? "").trim();
 
     if (!challongeAPIKey) {
-      throw "No challonge API key provided for user.";
+      res.status(412).json({ message: "No challonge API key provided for user." });
+      return;
+    }
+    if (!tournamentId) {
+      res.status(412).json({ message: "Please provide the Challonge tournament ID." });
+      return;
     }
 
     // Fetch the list of participants (teams) in the tournament
-    let challongeResponse = await fetch("https://api.challonge.com/v1/tournaments/" + tournamentId + "/participants.json?api_key=" + challongeAPIKey);
+    let challongeResponse = await fetch(
+      "https://api.challonge.com/v1/tournaments/" + encodeURIComponent(tournamentId) +
+        "/participants.json?api_key=" + encodeURIComponent(challongeAPIKey)
+    );
     let challongeData = (await challongeResponse.json()) as Array<{
       participant: {
         id: number;
@@ -847,56 +855,70 @@ router.post("/challonge", Utils.ensureAuthenticated, async (req, res) => {
       };
     }>;
 
-    if (!Array.isArray(challongeData) || challongeData.length === 0) {
-      throw "No teams found for Tournament " + tournamentId + ".";
+    if (!challongeResponse.ok || !Array.isArray(challongeData)) {
+      res.status(502).json({ message: "Challonge did not return the participants of tournament " + tournamentId + "." });
+      return;
+    }
+    if (challongeData.length === 0) {
+      res.status(404).json({ message: "No teams found for Tournament " + tournamentId + "." });
+      return;
     }
 
-    let teamArray: Array<any> = [];
-    let authArray: Array<any> = [];
-
-    // Iterate over each team
+    let imported: number = 0;
+    let skippedIds: string[] = [];
     for (let team of challongeData) {
-      let displayName = team.participant.display_name.substring(0, 40);
-      let challongeTeamId = team.participant.id;
+      let displayName: string = team.participant.display_name.substring(0, 40);
+      let challongeTeamId: number = team.participant.id;
 
-      // Insert team data into the 'team' table and retrieve the inserted team's ID
-      let insertResult: any = await db.query(
-        "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES (?, ?, ?, ?)",
-        [userID, displayName, displayName, challongeTeamId]
+      // Importing the same tournament again updates the teams instead of duplicating them.
+      const existing: RowDataPacket[] = await db.query(
+        "SELECT id FROM team WHERE user_id = ? AND challonge_team_id = ?",
+        [userID, challongeTeamId]
       );
+      let teamID: number;
+      if (existing.length) {
+        teamID = existing[0].id;
+        await db.query("UPDATE team SET name = ?, tag = ? WHERE id = ?", [displayName, displayName, teamID]);
+      } else {
+        let insertResult: any = await db.query(
+          "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES (?, ?, ?, ?)",
+          [userID, displayName, displayName, challongeTeamId]
+        );
+        teamID = insertResult.insertId;
+        imported++;
+      }
 
-      let teamID = insertResult.insertId; // Get the ID of the inserted team
-
-      // Check if 'custom_field_response' contains Steam IDs
-      if (team.participant.custom_field_response) {
-        let isFirstPlayer = true;
-
-        for (let [key, value] of Object.entries(team.participant.custom_field_response)) {
-          if (value) {
-            // Mark the first player as the captain
-            let isCaptain = isFirstPlayer;
-            isFirstPlayer = false; // Only the first player is the captain
-
-            // Insert the team ID (from the team table), Steam ID (auth), and captain flag into the team_auth_names table
-            authArray.push([teamID, value, isCaptain ? 1 : 0]); // 1 for captain, 0 for others
-          }
+      // Custom fields of the sign-up form may hold the players' Steam IDs or profile URLs.
+      // The first valid one is the captain; anything that isn't a Steam account is skipped.
+      let isFirstPlayer: boolean = true;
+      for (let value of Object.values(team.participant.custom_field_response ?? {})) {
+        if (!value) continue;
+        const steamId: string = await Utils.getSteamPID(String(value));
+        if (!steamId) {
+          skippedIds.push(String(value));
+          continue;
         }
+        const member: RowDataPacket[] = await db.query(
+          "SELECT id FROM team_auth_names WHERE team_id = ? AND auth = ?",
+          [teamID, steamId]
+        );
+        if (!member.length) {
+          await db.query(
+            "INSERT INTO team_auth_names (team_id, auth, name, captain) VALUES (?, ?, ?, ?)",
+            [teamID, steamId, "", isFirstPlayer ? 1 : 0]
+          );
+        }
+        isFirstPlayer = false;
       }
     }
 
-    // Insert Steam IDs into the 'team_auth_names' table with the captain flag
-    if (authArray.length > 0) {
-      let authSqlString = "INSERT INTO team_auth_names (team_id, auth, captain) VALUES ?";
-      await db.query(authSqlString, [authArray]);
-    }
-
     res.json({
-      message: "Challonge teams and authentication data (Steam IDs) imported successfully!"
+      message:
+        `Challonge teams imported successfully! ${imported} new, ${challongeData.length - imported} updated.` +
+        (skippedIds.length ? ` Skipped values that are not Steam IDs: ${skippedIds.join(", ")}` : "")
     });
-
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 

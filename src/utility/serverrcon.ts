@@ -118,7 +118,7 @@ class ServerRcon {
    * Runs a command that replies with JSON (get5_status, get5_web_available).
    * @returns The parsed reply, or null if the command is unknown or the reply isn't JSON.
    */
-  private async executeJson(commandString: string): Promise<any | null> {
+  private async executeJson(commandString: string): Promise<any> {
     const response: string = await this.execute(commandString);
     const start = response.indexOf("{");
     if (start < 0) return null;
@@ -133,7 +133,7 @@ class ServerRcon {
    * MatchZy's get5_status: gamestate, matchid, map_number, team scores...
    * @returns The status, or null if MatchZy isn't answering.
    */
-  async getMatchStatus(): Promise<any | null> {
+  async getMatchStatus(): Promise<any> {
     if (process.env.NODE_ENV === "test") {
       return null;
     }

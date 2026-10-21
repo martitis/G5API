@@ -15,7 +15,7 @@ Frontend: `../G5V` (Vue). Roadmap and progress: [IMPROVEMENT_PLAN.md](IMPROVEMEN
 ## Commands
 Yarn 1 is the package manager; `yarn.lock` is the only lockfile. If yarn isn't installed globally, use `npx yarn@1.22.22 <cmd>`.
 All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/export).
-- `yarn build`: tsc. It must pass; a failing build blocks `yarn start` and deploys.
+- `yarn build`: cleans `dist/`, then tsc. It must pass; a failing build blocks `yarn start` and deploys.
 - `yarn lint`: ESLint (type-aware, `eslint.config.js`) with `--max-warnings=<current count>`. **Lower the cap when you
   fix warnings, never raise it.** Promote a rule from "warn" to "error" once its category is fixed.
 - `yarn format <files>`: Prettier (`.prettierrc.json`). The codebase hasn't been mass-formatted, so format only files you rewrite.
@@ -40,12 +40,11 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
 - `app.ts`: middleware, auth routes (`/auth/steam`, `/login`, `/register`, `/logout`), router mounts, and static
   `/demos` and `/backups` from `public/`.
 - `src/routes/`
-  - `matches/matches.ts`: match CRUD, SSE streams, and **`GET /matches/:id/config`, the MatchZy match JSON**
-    (`build_team_dict` builds the team objects)
+  - `matches/matches.ts`: match CRUD, SSE streams, and **`GET /matches/:id/config`**, which serves the MatchZy match JSON
+    built by `src/services/matchconfig.ts` (a pure function with unit tests)
   - `matches/matchserver.ts`: RCON actions (pause, forfeit, cancel, restart, add player, backups, rcon)
   - `v2/api.ts`: **MatchZy event webhook** (remote log URL) → `src/services/{seriesflowservices,mapflowservices}.ts`
   - `v2/demoapi.ts`, `v2/backupapi.ts`: demo and round-backup uploads from the game server
-  - `legacy/api.ts`: old G5WS callbacks (unused by MatchZy, slated for removal)
   - teams, servers, seasons, users, vetoes, vetosides, mapstats, playerstats (+ `extrastats.ts`), leaderboard, maps
 - `src/utility/utils.ts`: auth guards (`ensureAuthenticated`, `adminCheck`, `superAdminCheck`, `getUserMatchAccess*`),
   `checkApiKey` (game-server auth), `encrypt`/`decrypt`, `getRating`, `getSteamPID`, `updatePlayerStats`, `updatePugStats`
@@ -62,7 +61,7 @@ Docs: https://shobhit-pathak.github.io/MatchZy/ (commands, configuration, match 
   - Team: only `id`, `name` and `players` (`{steamid64: name}`) are read. `tag`/`flag`/`logo`/`coaches` are ignored, so
     coaches must be listed in `players` and use `.coach` in game.
   - Also read: `spectators.players`, `map_sides` (`team1_ct|team1_t|team2_ct|team2_t|knife`), `veto_first`,
-    `side_type`, `skip_veto`, `clinch_series`, `wingman`, `players_per_team`, `min_players_to_ready` (total, not per team)
+    `side_type`, `skip_veto`, `clinch_series`, `wingman`, `players_per_team`, `min_players_to_ready` (**per team**, `ReadySystem.cs`)
     and `cvars`. `match_title` is ignored.
 - **Cvars in the config:**
   - name must match `^[A-Za-z0-9_]+$`
