@@ -5,13 +5,16 @@ import { FieldPacket, PoolOptions, RowDataPacket } from 'mysql2/typings/mysql';
 interface IStringIndex {
   [key: string]: any;
 }
+// ES module imports run before bin/www.ts can default NODE_ENV, so default it here too
+// (the config package itself also falls back to "development").
+const env: string = process.env.NODE_ENV || "development";
 const dbCfg = {
-  host: config.get(process.env.NODE_ENV+".host"),
-  port: config.get(process.env.NODE_ENV+".port"),
-  user: config.get(process.env.NODE_ENV+".user"),
-  password: config.get(process.env.NODE_ENV+".password"),
-  database: config.get(process.env.NODE_ENV+".database"),
-  connectionLimit: config.get(process.env.NODE_ENV+".connectionLimit")
+  host: config.get(env + ".host"),
+  port: config.get(env + ".port"),
+  user: config.get(env + ".user"),
+  password: config.get(env + ".password"),
+  database: config.get(env + ".database"),
+  connectionLimit: config.get(env + ".connectionLimit")
 } as PoolOptions;
 const connPool = createPool(dbCfg);
 
