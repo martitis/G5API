@@ -97,3 +97,22 @@ describe("Test that only admins create matches", () => {
       });
   });
 });
+
+describe("Test the global search", () => {
+  it("Should ignore queries shorter than 2 characters.", async () => {
+    const result = await request.get("/search?q=a").expect(200);
+    expect(result.body).toEqual({ teams: [], players: [], matches: [], tournaments: [] });
+  });
+  it("Should find teams and matches by name, without PUG teams.", async () => {
+    const teams = await request.get("/teams").expect(200);
+    const team = teams.body.teams[0];
+    const result = await request.get(`/search?q=${encodeURIComponent(team.name.slice(0, 4))}`).expect(200);
+    for (const key of ["teams", "players", "matches", "tournaments"]) expect(Array.isArray(result.body[key])).toBe(true);
+    expect(result.body.teams.length).toBeLessThanOrEqual(8);
+    expect(result.body.teams.every((row) => row.name.toLowerCase().includes(team.name.slice(0, 4).toLowerCase()) || row.tag)).toBe(true);
+  });
+  it("Should treat % and _ as plain text.", async () => {
+    const result = await request.get("/search?q=%25%25").expect(200);
+    expect(result.body.teams).toHaveLength(0);
+  });
+});

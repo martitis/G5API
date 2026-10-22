@@ -74,6 +74,12 @@ describe("Test the user routes", () => {
         expect(me.roles_from_config).toBe(1);
       });
   });
+  it('Should search the audit log text.', async () => {
+    const hit = await request.get('/admin/audit?q=user.create').expect(200);
+    expect(hit.body.total).toBeGreaterThan(0);
+    const miss = await request.get('/admin/audit?q=no-such-entry-xyz').expect(200);
+    expect(miss.body.total).toBe(0);
+  });
   it('Should have written the user creation to the audit log.', () => {
     return request.get('/admin/audit?action=user.')
       .expect(200)

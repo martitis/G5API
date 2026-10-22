@@ -68,6 +68,7 @@ router.get("/users", async (req, res, next) => {
  *       - { name: user_id, in: query, schema: { type: integer } }
  *       - { name: target_type, in: query, schema: { type: string } }
  *       - { name: target_id, in: query, schema: { type: integer } }
+ *       - { name: q, in: query, description: Text in the action, detail or user name, schema: { type: string } }
  *       - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
  *       - { name: offset, in: query, schema: { type: integer, default: 0 } }
  *     tags:
@@ -94,6 +95,12 @@ router.get("/audit", async (req, res, next) => {
       where.push("a.action LIKE ?");
       args.push(action.replace(/[\\%_]/g, (c) => "\\" + c) + "%");
     }
+    const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 64) : "";
+    if (q) {
+      const like = "%" + q.replace(/[\\%_]/g, (c) => "\\" + c) + "%";
+      where.push("(a.action LIKE ? OR a.cmd_used LIKE ? OR u.name LIKE ?)");
+      args.push(like, like, like);
+    }
     const userId = int(req.query.user_id);
     if (userId != null) {
       where.push("a.user_id = ?");
@@ -112,7 +119,10 @@ router.get("/audit", async (req, res, next) => {
     const limit = Math.min(int(req.query.limit) || 50, 200);
     const offset = int(req.query.offset) ?? 0;
     const whereSql = "WHERE " + where.join(" AND ");
-    const total: RowDataPacket[] = await db.query(`SELECT COUNT(*) AS total FROM match_audit a ${whereSql}`, args);
+    const total: RowDataPacket[] = await db.query(
+      `SELECT COUNT(*) AS total FROM match_audit a LEFT JOIN user u ON u.id = a.user_id ${whereSql}`,
+      args
+    );
     const entries: RowDataPacket[] = await db.query(
       "SELECT a.id, a.time_affected AS time, a.user_id, u.name AS user_name, a.action, a.target_type, a.target_id, " +
         "a.status_code, a.cmd_used AS detail FROM match_audit a LEFT JOIN user u ON u.id = a.user_id " +

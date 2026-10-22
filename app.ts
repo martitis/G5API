@@ -26,6 +26,7 @@ import metricsRouter from "./src/routes/metrics.js";
 import adminRouter from "./src/routes/admin.js";
 import tournamentsRouter from "./src/routes/tournaments.js";
 import pugsRouter from "./src/routes/pugs.js";
+import searchRouter from "./src/routes/search.js";
 import { startPugSweep } from "./src/services/pugs.js";
 import matchesRouter from "./src/routes/matches/matches.js";
 import matchServerRouter from "./src/routes/matches/matchserver.js";
@@ -197,6 +198,7 @@ app.use("/metrics", metricsRouter);
 app.use("/admin", adminRouter);
 app.use("/tournaments", tournamentsRouter);
 app.use("/pugs", pugsRouter);
+app.use("/search", searchRouter);
 // Times out PUG ready checks and expires old queues (tests drive queues themselves).
 if (process.env.NODE_ENV !== "test") startPugSweep();
 app.use("/v2", v2Router);
