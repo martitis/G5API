@@ -23,24 +23,23 @@ passport.deserializeUser((obj: User, done) => {
   done(null, obj as any);
 });
 
+/** The mock Steam login (any visitor becomes the test user) needs NODE_ENV=test and G5API_MOCK_AUTH=1 (set by the
+ * jest configs), so a server started with NODE_ENV=test by mistake still uses real Steam logins. */
+const mockAuth: boolean = process.env.NODE_ENV === "test" && process.env.G5API_MOCK_AUTH === "1";
+
 function strategyForEnvironment() {
-  let strategy: any;
-  switch (process.env.NODE_ENV) {
-    case "test":
-      //@ts-ignore
-      strategy = new MockStrategy({ name: "steam", passAuthentication: true }, returnStrategy);
-      break;
-    default:
-      strategy = new SteamStrategy(
-        {
-          returnURL: Utils.apiUrl("/auth/steam/return"),
-          realm: Utils.apiUrl("/"),
-          apiKey: config.get("server.steamAPIKey"),
-        },
-        returnStrategy
-      );
+  if (mockAuth) {
+    //@ts-ignore
+    return new MockStrategy({ name: "steam", passAuthentication: true }, returnStrategy);
   }
-  return strategy;
+  return new SteamStrategy(
+    {
+      returnURL: Utils.apiUrl("/auth/steam/return"),
+      realm: Utils.apiUrl("/"),
+      apiKey: config.get("server.steamAPIKey"),
+    },
+    returnStrategy
+  );
 }
 
 async function returnStrategy(identifier: any, profile: any, done: any) {

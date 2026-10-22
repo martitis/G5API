@@ -36,6 +36,8 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
 - `admins.steam_ids` / `super_admins.steam_ids` grant their role on every Steam login (`user.roles_from_config = 1`);
   leaving a list removes the role only when it came from the list. Roles a super admin sets in the panel
   (`PUT /users`, `roles_from_config = 0`) survive logins. Only admins (admin or super admin) can create matches.
+- The mock Steam login (every visitor becomes the test user) needs `NODE_ENV=test` **and** `G5API_MOCK_AUTH=1`;
+  the jest configs set both.
 - Deployment: bare Node + pm2 behind nginx/Caddy. SSE routes need `proxy_buffering off` and long timeouts.
 
 ## Layout

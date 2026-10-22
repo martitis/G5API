@@ -251,7 +251,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   game server (matches keep the URLs they were loaded with)
 - [ ] pino logging; `/health`
 - [ ] Rotate the Steam API key leaked in upstream history (`1916f7b`, `4ff0e1e`) if still used
-- [ ] MockStrategy only with NODE_ENV=test **and** an explicit flag
+- [x] MockStrategy only with NODE_ENV=test **and** `G5API_MOCK_AUTH=1` (set in the jest configs)
 - [ ] `docker-compose.yml` still pulls upstream's image (from Phase 0)
 
 ## Branches and merging
