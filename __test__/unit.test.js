@@ -1,9 +1,9 @@
 // Unit tests that need no database or game server.
 import { agent } from "supertest";
 import app from "../app.js";
-import { backupLoadCommand, parseBackupList, safeRconArg, RconArgumentError } from "../src/utility/serverrcon.js";
+import { backupLoadCommand, parseBackupList, restoreFailed, safeRconArg, RconArgumentError } from "../src/utility/serverrcon.js";
 import Utils from "../src/utility/utils.js";
-import { buildMatchConfig, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
+import { buildMatchConfig, callbackCvars, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
 import { buildSummary } from "../src/services/matchsummary.js";
 
 const request = agent(app);
@@ -110,7 +110,8 @@ describe("Routes refuse anonymous and malformed requests before touching the dat
     ["post", "/matches/1/cancel"],
     ["post", "/matches/1/pause"],
     ["post", "/matches"],
-    ["post", "/teams/members/resolve"]
+    ["post", "/teams/members/resolve"],
+    ["post", "/matches/1/callbacks"]
   ])("%s %s without login gives 401 JSON", (method, path) => {
     return request[method](path)
       .send([{ season_id: 1, match_id: 1 }])
@@ -399,4 +400,28 @@ describe("backupLoadCommand", () => {
       expect(() => backupLoadCommand(name)).toThrow(RconArgumentError);
     }
   );
+});
+
+describe("restoreFailed", () => {
+  it.each([
+    "[MatchZy] [RestoreRoundBackup] matchzy_3_0_round04.json has no complete round data, nothing restored.",
+    "[MatchZy] [RestoreRoundBackup FATAL] Required backup data file does not exist! File: x"
+  ])("recognises %p", (reply) => {
+    expect(restoreFailed(reply)).toBe(true);
+  });
+  it("accepts a normal reply", () => {
+    expect(restoreFailed("[MatchZy] Restoring round 5")).toBe(false);
+    expect(restoreFailed("")).toBe(false);
+  });
+});
+
+describe("callbackCvars", () => {
+  it("points MatchZy's event, backup and demo uploads at this API with the match key", () => {
+    const cvars = callbackCvars("KEY123", true);
+    expect(cvars.matchzy_remote_log_url).toMatch(/\/v2$/);
+    expect(cvars.matchzy_remote_backup_url).toMatch(/\/v2\/backup$/);
+    expect(cvars.matchzy_demo_upload_url).toMatch(/\/v2\/demo$/);
+    expect(cvars.matchzy_remote_log_header_value).toBe("KEY123");
+    expect(callbackCvars("KEY123", false).matchzy_demo_upload_url).toBeUndefined();
+  });
 });

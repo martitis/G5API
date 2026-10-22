@@ -46,6 +46,16 @@ export function backupLoadCommand(backupName: unknown): string {
   return `matchzy_loadbackup ${backupName}`;
 }
 
+/** MatchZy's reply when a restore did nothing (missing file, incomplete round data, bad JSON).
+ * The RCON reply carries what MatchZy printed for the console caller.
+ */
+const RESTORE_FAILED = /nothing restored|does not exist|incomplete|fatal|failed|error|could not|unable to/i;
+
+/** Whether the server's reply to matchzy_loadbackup says the restore failed. */
+export function restoreFailed(response: string | null | undefined): boolean {
+  return RESTORE_FAILED.test(String(response ?? ""));
+}
+
 export interface BackupEntry {
   /** Exact file name to pass to matchzy_loadbackup. */
   file: string;
@@ -482,6 +492,24 @@ class ServerRcon {
       console.error("RCON error on restore backup: " + (err as Error).toString());
       throw err;
     }
+  }
+
+  /**
+   * Sets cvars on the running server (e.g. the callback URLs after the API's address changed).
+   * Names and values go through the same checks as every other RCON argument.
+   * @function
+   * @param {Object} cvars - { cvar_name: value }
+   * @returns The server's replies.
+   */
+  async setCvars(cvars: Record<string, string>): Promise<string> {
+    const replies: string[] = [];
+    for (const [name, value] of Object.entries(cvars)) {
+      if (!/^[A-Za-z0-9_]{1,64}$/.test(name)) throw new RconArgumentError(`Invalid cvar name: ${name}`);
+      safeRconArg(value, name, 512);
+      if (process.env.NODE_ENV === "test") continue;
+      replies.push(await this.execute(`${name} "${value}"`));
+    }
+    return replies.filter(Boolean).join(" ");
   }
 
   /**

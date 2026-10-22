@@ -11,7 +11,9 @@ import {db} from "../../services/db.js";
 
 import Utils from "../../utility/utils.js";
 
-import GameServer, { BackupEntry, RconArgumentError } from "../../utility/serverrcon.js";
+import GameServer, { BackupEntry, RconArgumentError, restoreFailed } from "../../utility/serverrcon.js";
+import { callbackCvars } from "../../services/matchconfig.js";
+import config from "config";
 
 
 import { existsSync, readdir } from "fs";
@@ -63,7 +65,7 @@ router.post(
   Utils.ensureAuthenticated,
   async (req, res, next) => {
     try {
-      let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
         req.params.match_id,
         req.user!,
         false
@@ -76,7 +78,7 @@ router.post(
           .status(412)
           .json({ message: "Winner number invalid. Please provide 1 or 2." });
       } else {
-        let currentMatchInfo: string =
+        const currentMatchInfo: string =
           "SELECT server_id, team1_id, team2_id, is_pug FROM `match` WHERE id = ?";
         const matchRow: RowDataPacket[] = await db.query(
           currentMatchInfo,
@@ -1103,6 +1105,14 @@ router.post(
             return;
           }
           let rconResponse: string = await serverUpdate.restoreBackup(backupName);
+          // MatchZy answers even when it restored nothing (e.g. "has no complete round data").
+          if (restoreFailed(rconResponse)) {
+            res.status(409).json({
+              message: "MatchZy did not restore this backup. Try another round.",
+              response: rconResponse
+            });
+            return;
+          }
           res.json({ message: "Restored backup.", response: rconResponse });
         } catch (err) {
           if (err instanceof RconArgumentError) {
@@ -1346,5 +1356,57 @@ async function getGameServer(match_id: string): Promise<GameServer> {
     serverRow[0].rcon_password
   );
 }
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/callbacks:
+ *   post:
+ *     description: >
+ *       Sends the API's current event, backup and demo upload URLs to the game server of a running match.
+ *       Needed when the API's address (server.apiURL) changed after the match was loaded, because MatchZy keeps
+ *       the URLs it got with the match config.
+ *     produces:
+ *       - application/json
+ *     parameters:
+ *       - name: match_id
+ *         required: true
+ *         schema:
+ *          type: integer
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: The URLs were sent.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.post("/:match_id/callbacks", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+    if (errMessage != null) {
+      res.status(errMessage.status).json({ message: errMessage.message });
+      return;
+    }
+    const matchRow: RowDataPacket[] = await db.query("SELECT api_key FROM `match` WHERE id = ?", [
+      req.params.match_id
+    ]);
+    const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+    const response: string = await serverUpdate.setCvars(
+      callbackCvars(matchRow[0].api_key, Boolean(config.get("server.uploadDemos")))
+    );
+    res.json({ message: "Panel address sent to the game server.", response });
+  } catch (err) {
+    if (err instanceof RconArgumentError) {
+      res.status(412).json({ message: err.message });
+      return;
+    }
+    next(err);
+  }
+});
 
 export default router;
