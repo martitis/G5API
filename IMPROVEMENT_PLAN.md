@@ -159,12 +159,11 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   series_end/forfeit/cancel; bracket view, standings, "Start ready matches" on free servers
   - [ ] Challonge as an optional sync target for tournaments (today Challonge sync is per season)
   - [ ] live bracket updates over SSE (the page polls every 15 s)
-- [ ] **5.4 PUG queue (opt-in at creation):**
-  - "Team mode: Existing teams | PUG queue"
-  - `queue_status` + `match_queue_player`
-  - join/leave/ready + SSE; ready check
-  - team formation random/captains/balanced
-  - then load via `matchzy_loadmatch_url`
+- [x] **5.4 PUG queue (opt-in at creation):** team mode on create match; `pug_queue` / `pug_queue_player`; join (Steam
+  verified, one queue at a time), leave, ready check with timeout sweep, formation random / balanced (exhaustive up
+  to 7v7) / captains (ABBA picks); PUG teams (`team.is_pug`, hidden) and the match created via `createMatchAs()`;
+  failed + retry; SSE queue page; open queues above the match list
+  - [ ] a two-player end-to-end test (needs a second Steam-verified test account)
 - [ ] **5.5 Admin match control center** (RCON, sanitized, confirm dialogs, audit):
   - force start/restart, skip veto, knife toggle, playout, readyrequired, addreadytime, force pause/unpause, endmatch with winner, change map
   - restore by round from `match_round` (`css_restore N`)
