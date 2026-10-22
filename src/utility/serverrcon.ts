@@ -34,6 +34,18 @@ function safeSteamId(value: unknown): string {
 /** MatchZy round backup file name: matchzy_<matchid>_<mapnumber>_round<NN>.json */
 const MATCHZY_BACKUP_FILE = /^matchzy_(\d+)_(\d+)_round(\d+)\.json$/;
 
+/** The RCON command that restores a round backup on the game server.
+ * MatchZy reads matchzy_loadbackup's argument raw (ArgString), so quotes would become part of the file name;
+ * the name is sent bare, which is safe because only names matching MATCHZY_BACKUP_FILE get here.
+ * @throws RconArgumentError for anything that isn't a MatchZy backup file name.
+ */
+export function backupLoadCommand(backupName: unknown): string {
+  if (typeof backupName !== "string" || !MATCHZY_BACKUP_FILE.test(backupName)) {
+    throw new RconArgumentError("Invalid backup name.");
+  }
+  return `matchzy_loadbackup ${backupName}`;
+}
+
 export interface BackupEntry {
   /** Exact file name to pass to matchzy_loadbackup. */
   file: string;
@@ -460,13 +472,11 @@ class ServerRcon {
    */
   async restoreBackup(backupName: string): Promise<string> {
     try {
-      if (typeof backupName !== "string" || !MATCHZY_BACKUP_FILE.test(backupName)) {
-        throw new RconArgumentError("Invalid backup name.");
-      }
+      const command: string = backupLoadCommand(backupName);
       if (process.env.NODE_ENV === "test") {
         return "Cannot restore backups on a test instance. Please use a development or production environment.";
       }
-      let loadMatchResponse = await this.execute(`matchzy_loadbackup "${backupName}"`);
+      let loadMatchResponse = await this.execute(command);
       return loadMatchResponse;
     } catch (err) {
       console.error("RCON error on restore backup: " + (err as Error).toString());

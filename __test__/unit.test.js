@@ -1,7 +1,7 @@
 // Unit tests that need no database or game server.
 import { agent } from "supertest";
 import app from "../app.js";
-import { parseBackupList, safeRconArg, RconArgumentError } from "../src/utility/serverrcon.js";
+import { backupLoadCommand, parseBackupList, safeRconArg, RconArgumentError } from "../src/utility/serverrcon.js";
 import Utils from "../src/utility/utils.js";
 import { buildMatchConfig, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
 import { buildSummary } from "../src/services/matchsummary.js";
@@ -387,4 +387,16 @@ describe("Utils.adminCheck / superAdminCheck", () => {
     expect(Utils.superAdminCheck({ super_admin: "1" })).toBe(true);
     expect(Utils.superAdminCheck({ admin: 1, super_admin: 0 })).toBe(false);
   });
+});
+
+describe("backupLoadCommand", () => {
+  it("sends the file name without quotes (MatchZy would keep them in the path)", () => {
+    expect(backupLoadCommand("matchzy_3_0_round05.json")).toBe("matchzy_loadbackup matchzy_3_0_round05.json");
+  });
+  it.each([['"matchzy_3_0_round05.json"'], ["matchzy_3_0_round05.json; quit"], ["../x.json"], [null]])(
+    "rejects %p",
+    (name) => {
+      expect(() => backupLoadCommand(name)).toThrow(RconArgumentError);
+    }
+  );
 });
