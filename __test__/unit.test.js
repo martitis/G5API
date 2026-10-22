@@ -15,6 +15,7 @@ import {
   standings,
   swissPairings
 } from "../src/services/bracket.js";
+import { balancedTeams, chooseCaptains, nextPickingTeam, randomTeams } from "../src/services/pugformation.js";
 
 const request = agent(app);
 
@@ -546,5 +547,37 @@ describe("brackets", () => {
     }
     const bye = round2.find((node) => node.sources[1] == null);
     expect(bye.sources[0].team_id).not.toBe(104);
+  });
+});
+
+describe("PUG team formation", () => {
+  const players = [1.6, 1.2, 1.1, 1.0, 1.0, 0.9, 0.9, 0.8, 0.7, 0.5].map((rating, i) => ({ user_id: i + 1, rating }));
+  const sum = (team) => team.reduce((total, player) => total + player.rating, 0);
+
+  it("balances 5v5 to the closest possible rating totals", () => {
+    const [a, b] = balancedTeams(players);
+    expect(a).toHaveLength(5);
+    expect(b).toHaveLength(5);
+    // The ratings total 9.7 in steps of 0.1, so 0.1 apart is the best split there is.
+    expect(Math.abs(sum(a) - sum(b))).toBeLessThan(0.1 + 1e-9);
+    expect(new Set([...a, ...b].map((p) => p.user_id)).size).toBe(10);
+  });
+  it("uses a snake draft for big queues", () => {
+    const many = Array.from({ length: 16 }, (_, i) => ({ user_id: i, rating: 2 - i * 0.1 }));
+    const [a, b] = balancedTeams(many);
+    expect(a).toHaveLength(8);
+    expect(b).toHaveLength(8);
+    expect(Math.abs(sum(a) - sum(b))).toBeLessThan(0.3);
+  });
+  it("splits randomly into equal halves", () => {
+    let seed = 1;
+    const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const [a, b] = randomTeams(players, random);
+    expect(a).toHaveLength(5);
+    expect(b).toHaveLength(5);
+  });
+  it("lets captains pick in ABBA order, the two best players being captains", () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 7].map(nextPickingTeam)).toEqual([1, 2, 2, 1, 1, 2, 2, 1]);
+    expect(chooseCaptains(players).map((p) => p.user_id)).toEqual([1, 2]);
   });
 });

@@ -268,4 +268,40 @@ describe("Test the matches routes", () => {
       expect(result.body.nodes[0]).toMatchObject({ status: "done", winner_id: 3, score: [0, 1] });
     });
   });
+
+  describe("PUG queues", () => {
+    let queueId;
+    it("Should open a queue (admins only) and list it as open.", async () => {
+      const created = await request
+        .post("/pugs")
+        .set("Content-Type", "application/json")
+        .send([{ title: "Evening PUG", settings: { players_per_team: 1, formation: "random", map_pool: ["de_mirage"] } }])
+        .expect(200);
+      queueId = created.body.id;
+      const list = await request.get("/pugs").expect(200);
+      expect(list.body.queues.find((queue) => queue.id === queueId)).toMatchObject({ joined: 0, size: 2, status: "open" });
+    });
+    it("Should let a Steam user join once, and refuse an unverified local account.", async () => {
+      await request.post(`/pugs/${queueId}/join`).expect(200);
+      await request.post(`/pugs/${queueId}/join`).expect(200);
+      const detail = await request.get(`/pugs/${queueId}`).expect(200);
+      expect(detail.body.players).toHaveLength(1);
+      expect(detail.body.players[0].rating).toBeGreaterThan(0);
+      const local = agent(app);
+      await local
+        .post("/register")
+        .set("Content-Type", "application/json")
+        .send({ username: "pugger", password: "pugger-pass", steam_id: "76561198000000888" })
+        .expect(200);
+      await local.post(`/pugs/${queueId}/join`).expect(403);
+    });
+    it("Should refuse a ready when there is no ready check, then leave and cancel.", async () => {
+      await request.post(`/pugs/${queueId}/ready`).expect(409);
+      await request.post(`/pugs/${queueId}/leave`).expect(200);
+      expect((await request.get(`/pugs/${queueId}`)).body.players).toHaveLength(0);
+      await request.post(`/pugs/${queueId}/cancel`).expect(200);
+      expect((await request.get(`/pugs/${queueId}`)).body.queue.status).toBe("cancelled");
+      await request.post(`/pugs/${queueId}/join`).expect(409);
+    });
+  });
 });

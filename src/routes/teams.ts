@@ -119,6 +119,8 @@ router.get("/", async (req, res) => {
       "FROM team t LEFT OUTER JOIN team_auth_names ta " +
       "ON t.id = ta.team_id JOIN user usr " + 
       "ON usr.id = t.user_id " +
+      // Teams generated for PUG queues aren't listed.
+      "WHERE t.is_pug = 0 " +
       "GROUP BY t.id " +
       "ORDER BY t.id DESC";
     const teams: RowDataPacket[] = await db.query(sql);
@@ -173,7 +175,7 @@ router.get("/myteams", Utils.ensureAuthenticated, async (req, res) => {
       "FROM team t LEFT OUTER JOIN team_auth_names ta " +
       "ON t.id = ta.team_id  JOIN user usr " + 
       "ON usr.id = t.user_id " +
-      "WHERE t.user_id = ? " +
+      "WHERE t.user_id = ? AND t.is_pug = 0 " +
       "GROUP BY t.id " + 
       "ORDER BY t.id DESC";
     const teams: RowDataPacket[] = await db.query(sql, [req.user?.id]);

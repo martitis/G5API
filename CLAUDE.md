@@ -58,6 +58,10 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
   pairings, `resolveBracket`, standings), `src/services/tournaments.ts` (DB: start, `refreshTournament`,
   `onMatchChanged` called on series_end/forfeit/cancel/restart), `src/routes/tournaments.ts`. Slot matches are
   created through `POST /matches` with `tournament_match_id` (checked: slot ready and free, same teams).
+- PUG queues: `src/services/pugs.ts` (join, ready check with timeout sweep, formation, `loadMatch`),
+  `src/services/pugformation.ts` (pure: balanced/random/captains ABBA), `src/routes/pugs.ts`. Joining needs a
+  Steam-verified account. The match is created with `createMatchAs()` (the POST /matches handler, exported from
+  `routes/matches/matches.ts`); PUG teams have `team.is_pug = 1` and are hidden from team lists.
 - `src/services/challonge.ts`: Challonge score sync. `src/types/`: TS types.
 
 ## MatchZy integration facts (verified against the MatchZy source)

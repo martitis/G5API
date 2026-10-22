@@ -3,7 +3,7 @@
  * @requires express
  * @requires db
  */
-import { Router } from "express";
+import { NextFunction, Request, Response, Router } from "express";
 
 const router = Router();
 
@@ -1463,276 +1463,7 @@ router.get("/:match_id/config", async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, audited("match.create", { target: (req, body) => ({ type: "match", id: body?.id ?? null }), detail: (req) => `teams ${firstBody(req).team1_id ?? "?"} vs ${firstBody(req).team2_id ?? "?"}, server ${firstBody(req).server_id ?? "?"}` }), async (req, res, next) => {
-  try {
-    // Matches are run by the panel's admins.
-    if (!Utils.adminCheck(req.user!)) {
-      res.status(403).json({ message: "Only admins can create matches." });
-      return;
-    }
-    // A match for a tournament slot: the slot must be ready, free, and played by exactly these teams.
-    const tournamentMatchId: number | null = Number(req.body[0]?.tournament_match_id) || null;
-    if (tournamentMatchId) {
-      const slot: RowDataPacket[] = await db.query(
-        "SELECT tm.*, t.user_id AS tournament_owner, t.season_id AS tournament_season, m.cancelled AS linked_cancelled " +
-          "FROM tournament_match tm JOIN tournament t ON t.id = tm.tournament_id " +
-          "LEFT JOIN `match` m ON m.id = tm.match_id WHERE tm.id = ?",
-        [tournamentMatchId]
-      );
-      const node = slot[0];
-      if (!node) {
-        res.status(404).json({ message: "Tournament match not found." });
-        return;
-      }
-      if (node.tournament_owner !== req.user!.id && !Utils.superAdminCheck(req.user!)) {
-        res.status(403).json({ message: "User is not authorized to perform action." });
-        return;
-      }
-      if (node.status !== "ready" || (node.match_id != null && !node.linked_cancelled)) {
-        res.status(409).json({ message: "This tournament match isn't ready or already has a match." });
-        return;
-      }
-      if (Number(req.body[0].team1_id) !== node.team1_id || Number(req.body[0].team2_id) !== node.team2_id) {
-        res.status(412).json({ message: "The teams don't match the tournament pairing." });
-        return;
-      }
-      req.body[0].season_id = node.tournament_season ?? req.body[0].season_id;
-    }
-    const cvarError: string | null = Utils.validateCvars(
-      req.body[0]?.match_cvars
-    );
-    if (cvarError) {
-      res.status(412).json({ message: cvarError });
-      return;
-    }
-    // Check if server available, if we are given a server.
-    let serverSql: string =
-      "SELECT in_use, user_id, public_server FROM game_server WHERE id = ?";
-    if (req.body[0].server_id != null) {
-      const serverInUse: RowDataPacket[] = await db.query(serverSql, [
-        req.body[0].server_id
-      ]);
-      if (!serverInUse.length) {
-        res.status(404).json({ message: "Server not found." });
-        return;
-      } else if (serverInUse[0].in_use) {
-        res.status(409).json({
-          message: "Server is already in use, please select a different server."
-        });
-        return;
-      } else if (
-        serverInUse[0].user_id != req.user!.id &&
-        !Utils.superAdminCheck(req.user!) &&
-        serverInUse[0].public_server == 0
-      ) {
-        res.status(403).json({ message: "User does not own this server." });
-        return;
-      }
-    } else if (!req.body[0].ignore_server) {
-      res.status(412).json({ message: "Please choose a server." });
-      return;
-    }
-    // Season results are pushed to the season owner's Challonge tournament, so only their own seasons.
-    if (req.body[0].season_id != null) {
-      const season: RowDataPacket[] = await db.query(
-        "SELECT user_id FROM season WHERE id = ?",
-        [req.body[0].season_id]
-      );
-      if (!season.length) {
-        res.status(404).json({ message: "Season not found." });
-        return;
-      } else if (
-        season[0].user_id != req.user!.id &&
-        !Utils.superAdminCheck(req.user!)
-      ) {
-        res.status(403).json({ message: "User does not own this season." });
-        return;
-      }
-    }
-    let teamNameSql: string = "SELECT name FROM team WHERE id = ?";
-    let teamOneName: RowDataPacket[] = await db.query(teamNameSql, [
-      req.body[0].team1_id
-    ]);
-    let teamTwoName: RowDataPacket[] = await db.query(teamNameSql, [
-      req.body[0].team2_id
-    ]);
-    if (!teamOneName.length || !teamTwoName.length) {
-      res.status(404).json({ message: "Team not found." });
-      return;
-    }
-    // Reserve the server atomically, so two matches can't be created on it at the same time.
-    let serverReserved: boolean = false;
-    if (!req.body[0].ignore_server) {
-      const reserve: any = await db.query(
-        "UPDATE game_server SET in_use = 1 WHERE id = ? AND in_use = 0",
-        [req.body[0].server_id]
-      );
-      if (reserve.affectedRows !== 1) {
-        res.status(409).json({
-          message: "Server is already in use, please select a different server."
-        });
-        return;
-      }
-      serverReserved = true;
-    }
-    try {
-      let apiKey: string = generate({
-        length: 24,
-        capitalization: "uppercase"
-      });
-      let skipVeto: boolean =
-        req.body[0].skip_veto == null ? false : req.body[0].skip_veto;
-      let insertMatch: any;
-      let insertSet: MatchData = {
-        user_id: req.user!.id,
-        server_id: req.body[0].server_id,
-        team1_id: req.body[0].team1_id,
-        team2_id: req.body[0].team2_id,
-        season_id: req.body[0].season_id,
-        start_time: req.body[0].start_time,
-        max_maps: req.body[0].max_maps,
-        title: req.body[0].title,
-        skip_veto: skipVeto,
-        veto_first: req.body[0].veto_first,
-        veto_mappool: req.body[0].veto_mappool,
-        side_type:
-          req.body[0].side_type == null ? "standard" : req.body[0].side_type,
-        plugin_version: req.body[0].plugin_version,
-        private_match:
-          req.body[0].private_match == null ? 0 : req.body[0].private_match,
-        enforce_teams:
-          req.body[0].enforce_teams == null ? 1 : req.body[0].enforce_teams,
-        api_key: apiKey,
-        winner: null,
-        team1_string: teamOneName[0].name == null ? null : teamOneName[0].name,
-        team2_string: teamTwoName[0].name == null ? null : teamTwoName[0].name,
-        is_pug: req.body[0].is_pug,
-        min_player_ready: req.body[0].min_players_to_ready,
-        players_per_team: req.body[0].players_per_team,
-        min_spectators_to_ready:
-          req.body[0].min_spectators_to_ready !== null
-            ? req.body[0].min_spectators_to_ready
-            : 0,
-        map_sides:
-          req.body[0].map_sides !== null ? req.body[0].map_sides : null,
-        wingman: req.body[0]?.wingman
-      };
-      let sql: string = "INSERT INTO `match` SET ?";
-      let cvarSql: string =
-        "INSERT match_cvar (match_id, cvar_name, cvar_value) VALUES (?,?,?)";
-      insertSet = (await db.buildUpdateStatement(insertSet)) as MatchData;
-      insertMatch = await db.query(sql, [insertSet]);
-      if (req.body[0].spectator_auths) {
-        sql =
-          "INSERT match_spectator (match_id, auth, spectator_name) VALUES (?,?,?)";
-        for (let key in req.body[0].spectator_auths) {
-          // Entries are "<steam id>;<optional name>".
-          const [rawAuth, spectatorName] = String(
-            req.body[0].spectator_auths[key]
-          ).split(";");
-          let newAuth: string = await Utils.getSteamPID(rawAuth);
-          if (!newAuth) continue;
-          await db.query(sql, [
-            insertMatch.insertId,
-            newAuth,
-            spectatorName ?? null
-          ]);
-        }
-      }
-
-      if (req.body[0].match_cvars != null) {
-        let cvarInsertSet: Array<Object> = req.body[0].match_cvars;
-        // Already validated above: no quotes or separators, so values are stored as-is.
-        for (let key in cvarInsertSet) {
-          await db.query(cvarSql, [
-            insertMatch.insertId,
-            key,
-            cvarInsertSet[key]
-          ]);
-        }
-      }
-      if (!req.body[0].ignore_server) {
-        let ourServerSql: string =
-          "SELECT rcon_password, ip_string, port FROM game_server WHERE id=?";
-        const serveInfo: RowDataPacket[] = await db.query(ourServerSql, [
-          req.body[0].server_id
-        ]);
-        const newServer: GameServer = new GameServer(
-          serveInfo[0].ip_string,
-          serveInfo[0].port,
-          serveInfo[0].rcon_password
-        );
-        // Removes the match again when it can't be loaded, so no half-created match is left behind.
-        const undoMatch = async () => {
-          await db.query("DELETE FROM match_spectator WHERE match_id = ?", [
-            insertMatch.insertId
-          ]);
-          await db.query("DELETE FROM match_cvar WHERE match_id = ?", [
-            insertMatch.insertId
-          ]);
-          await db.query("DELETE FROM `match` WHERE id = ?", [
-            insertMatch.insertId
-          ]);
-        };
-        if (process.env.NODE_ENV !== "test") {
-          if (
-            !(await newServer.isServerAlive()) ||
-            !(await newServer.isGet5Available())
-          ) {
-            await undoMatch();
-            await db.query("UPDATE game_server SET in_use = 0 WHERE id = ?", [
-              req.body[0].server_id
-            ]);
-            serverReserved = false;
-            res.status(412).json({
-              message:
-                "The server is offline, MatchZy is not answering, or a match is already loaded on it."
-            });
-            return;
-          }
-          sql = "UPDATE `match` SET plugin_version = ? WHERE id = ?";
-          let get5Version: string = await newServer.getGet5Version();
-          await db.query(sql, [get5Version, insertMatch.insertId]);
-          if (
-            !(await newServer.prepareGet5Match(
-              Utils.apiUrl("/matches/" + insertMatch.insertId + "/config"),
-              apiKey
-            ))
-          ) {
-            await undoMatch();
-            await db.query("UPDATE game_server SET in_use = 0 WHERE id = ?", [
-              req.body[0].server_id
-            ]);
-            serverReserved = false;
-            res.status(500).json({
-              message:
-                "MatchZy did not load the match. Check the game server's MatchZy log; the match was not created."
-            });
-            return;
-          }
-        }
-      }
-      if (tournamentMatchId) {
-        await db.query("UPDATE tournament_match SET match_id = ? WHERE id = ?", [insertMatch.insertId, tournamentMatchId]);
-        GlobalEmitter.emit("tournamentUpdate");
-      }
-      res.json({
-        message: "Match inserted successfully!",
-        id: insertMatch.insertId
-      });
-    } catch (innerErr) {
-      // Give the server back if anything failed after reserving it.
-      if (serverReserved) {
-        await db.query("UPDATE game_server SET in_use = 0 WHERE id = ?", [
-          req.body[0].server_id
-        ]);
-      }
-      throw innerErr;
-    }
-  } catch (err) {
-    next(err);
-  }
-});
+router.post("/", Utils.ensureAuthenticated, audited("match.create", { target: (req, body) => ({ type: "match", id: body?.id ?? null }), detail: (req) => `teams ${firstBody(req).team1_id ?? "?"} vs ${firstBody(req).team2_id ?? "?"}, server ${firstBody(req).server_id ?? "?"}` }), createMatchHandler);
 
 /**
  * @swagger
@@ -2101,5 +1832,307 @@ router.delete("/", Utils.ensureAuthenticated, audited("match.delete", { target: 
     next(err);
   }
 });
+
+/** POST /matches. A named function, so a PUG queue can create its match the same way (createMatchAs). */
+export async function createMatchHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    // Matches are run by the panel's admins.
+    if (!Utils.adminCheck(req.user!)) {
+      res.status(403).json({ message: "Only admins can create matches." });
+      return;
+    }
+    // A match for a tournament slot: the slot must be ready, free, and played by exactly these teams.
+    const tournamentMatchId: number | null = Number(req.body[0]?.tournament_match_id) || null;
+    if (tournamentMatchId) {
+      const slot: RowDataPacket[] = await db.query(
+        "SELECT tm.*, t.user_id AS tournament_owner, t.season_id AS tournament_season, m.cancelled AS linked_cancelled " +
+          "FROM tournament_match tm JOIN tournament t ON t.id = tm.tournament_id " +
+          "LEFT JOIN `match` m ON m.id = tm.match_id WHERE tm.id = ?",
+        [tournamentMatchId]
+      );
+      const node = slot[0];
+      if (!node) {
+        res.status(404).json({ message: "Tournament match not found." });
+        return;
+      }
+      if (node.tournament_owner !== req.user!.id && !Utils.superAdminCheck(req.user!)) {
+        res.status(403).json({ message: "User is not authorized to perform action." });
+        return;
+      }
+      if (node.status !== "ready" || (node.match_id != null && !node.linked_cancelled)) {
+        res.status(409).json({ message: "This tournament match isn't ready or already has a match." });
+        return;
+      }
+      if (Number(req.body[0].team1_id) !== node.team1_id || Number(req.body[0].team2_id) !== node.team2_id) {
+        res.status(412).json({ message: "The teams don't match the tournament pairing." });
+        return;
+      }
+      req.body[0].season_id = node.tournament_season ?? req.body[0].season_id;
+    }
+    const cvarError: string | null = Utils.validateCvars(
+      req.body[0]?.match_cvars
+    );
+    if (cvarError) {
+      res.status(412).json({ message: cvarError });
+      return;
+    }
+    // Check if server available, if we are given a server.
+    let serverSql: string =
+      "SELECT in_use, user_id, public_server FROM game_server WHERE id = ?";
+    if (req.body[0].server_id != null) {
+      const serverInUse: RowDataPacket[] = await db.query(serverSql, [
+        req.body[0].server_id
+      ]);
+      if (!serverInUse.length) {
+        res.status(404).json({ message: "Server not found." });
+        return;
+      } else if (serverInUse[0].in_use) {
+        res.status(409).json({
+          message: "Server is already in use, please select a different server."
+        });
+        return;
+      } else if (
+        serverInUse[0].user_id != req.user!.id &&
+        !Utils.superAdminCheck(req.user!) &&
+        serverInUse[0].public_server == 0
+      ) {
+        res.status(403).json({ message: "User does not own this server." });
+        return;
+      }
+    } else if (!req.body[0].ignore_server) {
+      res.status(412).json({ message: "Please choose a server." });
+      return;
+    }
+    // Season results are pushed to the season owner's Challonge tournament, so only their own seasons.
+    if (req.body[0].season_id != null) {
+      const season: RowDataPacket[] = await db.query(
+        "SELECT user_id FROM season WHERE id = ?",
+        [req.body[0].season_id]
+      );
+      if (!season.length) {
+        res.status(404).json({ message: "Season not found." });
+        return;
+      } else if (
+        season[0].user_id != req.user!.id &&
+        !Utils.superAdminCheck(req.user!)
+      ) {
+        res.status(403).json({ message: "User does not own this season." });
+        return;
+      }
+    }
+    let teamNameSql: string = "SELECT name FROM team WHERE id = ?";
+    let teamOneName: RowDataPacket[] = await db.query(teamNameSql, [
+      req.body[0].team1_id
+    ]);
+    let teamTwoName: RowDataPacket[] = await db.query(teamNameSql, [
+      req.body[0].team2_id
+    ]);
+    if (!teamOneName.length || !teamTwoName.length) {
+      res.status(404).json({ message: "Team not found." });
+      return;
+    }
+    // Reserve the server atomically, so two matches can't be created on it at the same time.
+    let serverReserved: boolean = false;
+    if (!req.body[0].ignore_server) {
+      const reserve: any = await db.query(
+        "UPDATE game_server SET in_use = 1 WHERE id = ? AND in_use = 0",
+        [req.body[0].server_id]
+      );
+      if (reserve.affectedRows !== 1) {
+        res.status(409).json({
+          message: "Server is already in use, please select a different server."
+        });
+        return;
+      }
+      serverReserved = true;
+    }
+    try {
+      let apiKey: string = generate({
+        length: 24,
+        capitalization: "uppercase"
+      });
+      let skipVeto: boolean =
+        req.body[0].skip_veto == null ? false : req.body[0].skip_veto;
+      let insertMatch: any;
+      let insertSet: MatchData = {
+        user_id: req.user!.id,
+        server_id: req.body[0].server_id,
+        team1_id: req.body[0].team1_id,
+        team2_id: req.body[0].team2_id,
+        season_id: req.body[0].season_id,
+        start_time: req.body[0].start_time,
+        max_maps: req.body[0].max_maps,
+        title: req.body[0].title,
+        skip_veto: skipVeto,
+        veto_first: req.body[0].veto_first,
+        veto_mappool: req.body[0].veto_mappool,
+        side_type:
+          req.body[0].side_type == null ? "standard" : req.body[0].side_type,
+        plugin_version: req.body[0].plugin_version,
+        private_match:
+          req.body[0].private_match == null ? 0 : req.body[0].private_match,
+        enforce_teams:
+          req.body[0].enforce_teams == null ? 1 : req.body[0].enforce_teams,
+        api_key: apiKey,
+        winner: null,
+        team1_string: teamOneName[0].name == null ? null : teamOneName[0].name,
+        team2_string: teamTwoName[0].name == null ? null : teamTwoName[0].name,
+        is_pug: req.body[0].is_pug,
+        min_player_ready: req.body[0].min_players_to_ready,
+        players_per_team: req.body[0].players_per_team,
+        min_spectators_to_ready:
+          req.body[0].min_spectators_to_ready !== null
+            ? req.body[0].min_spectators_to_ready
+            : 0,
+        map_sides:
+          req.body[0].map_sides !== null ? req.body[0].map_sides : null,
+        wingman: req.body[0]?.wingman
+      };
+      let sql: string = "INSERT INTO `match` SET ?";
+      let cvarSql: string =
+        "INSERT match_cvar (match_id, cvar_name, cvar_value) VALUES (?,?,?)";
+      insertSet = (await db.buildUpdateStatement(insertSet)) as MatchData;
+      insertMatch = await db.query(sql, [insertSet]);
+      if (req.body[0].spectator_auths) {
+        sql =
+          "INSERT match_spectator (match_id, auth, spectator_name) VALUES (?,?,?)";
+        for (let key in req.body[0].spectator_auths) {
+          // Entries are "<steam id>;<optional name>".
+          const [rawAuth, spectatorName] = String(
+            req.body[0].spectator_auths[key]
+          ).split(";");
+          let newAuth: string = await Utils.getSteamPID(rawAuth);
+          if (!newAuth) continue;
+          await db.query(sql, [
+            insertMatch.insertId,
+            newAuth,
+            spectatorName ?? null
+          ]);
+        }
+      }
+
+      if (req.body[0].match_cvars != null) {
+        let cvarInsertSet: Array<Object> = req.body[0].match_cvars;
+        // Already validated above: no quotes or separators, so values are stored as-is.
+        for (let key in cvarInsertSet) {
+          await db.query(cvarSql, [
+            insertMatch.insertId,
+            key,
+            cvarInsertSet[key]
+          ]);
+        }
+      }
+      if (!req.body[0].ignore_server) {
+        let ourServerSql: string =
+          "SELECT rcon_password, ip_string, port FROM game_server WHERE id=?";
+        const serveInfo: RowDataPacket[] = await db.query(ourServerSql, [
+          req.body[0].server_id
+        ]);
+        const newServer: GameServer = new GameServer(
+          serveInfo[0].ip_string,
+          serveInfo[0].port,
+          serveInfo[0].rcon_password
+        );
+        // Removes the match again when it can't be loaded, so no half-created match is left behind.
+        const undoMatch = async () => {
+          await db.query("DELETE FROM match_spectator WHERE match_id = ?", [
+            insertMatch.insertId
+          ]);
+          await db.query("DELETE FROM match_cvar WHERE match_id = ?", [
+            insertMatch.insertId
+          ]);
+          await db.query("DELETE FROM `match` WHERE id = ?", [
+            insertMatch.insertId
+          ]);
+        };
+        if (process.env.NODE_ENV !== "test") {
+          if (
+            !(await newServer.isServerAlive()) ||
+            !(await newServer.isGet5Available())
+          ) {
+            await undoMatch();
+            await db.query("UPDATE game_server SET in_use = 0 WHERE id = ?", [
+              req.body[0].server_id
+            ]);
+            serverReserved = false;
+            res.status(412).json({
+              message:
+                "The server is offline, MatchZy is not answering, or a match is already loaded on it."
+            });
+            return;
+          }
+          sql = "UPDATE `match` SET plugin_version = ? WHERE id = ?";
+          const get5Version: string = await newServer.getGet5Version();
+          await db.query(sql, [get5Version, insertMatch.insertId]);
+          if (
+            !(await newServer.prepareGet5Match(
+              Utils.apiUrl("/matches/" + insertMatch.insertId + "/config"),
+              apiKey
+            ))
+          ) {
+            await undoMatch();
+            await db.query("UPDATE game_server SET in_use = 0 WHERE id = ?", [
+              req.body[0].server_id
+            ]);
+            serverReserved = false;
+            res.status(500).json({
+              message:
+                "MatchZy did not load the match. Check the game server's MatchZy log; the match was not created."
+            });
+            return;
+          }
+        }
+      }
+      if (tournamentMatchId) {
+        await db.query("UPDATE tournament_match SET match_id = ? WHERE id = ?", [insertMatch.insertId, tournamentMatchId]);
+        GlobalEmitter.emit("tournamentUpdate");
+      }
+      res.json({
+        message: "Match inserted successfully!",
+        id: insertMatch.insertId
+      });
+    } catch (innerErr) {
+      // Give the server back if anything failed after reserving it.
+      if (serverReserved) {
+        await db.query("UPDATE game_server SET in_use = 0 WHERE id = ?", [
+          req.body[0].server_id
+        ]);
+      }
+      throw innerErr;
+    }
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Creates a match as the given user, with exactly the checks of POST /matches.
+ * @returns The HTTP status and JSON the route would have answered.
+ */
+export async function createMatchAs(
+  user: Express.User,
+  body: Record<string, unknown>
+): Promise<{ status: number; json: any }> {
+  const result = { status: 200, json: null as any };
+  const fakeRes = {
+    status(code: number) {
+      result.status = code;
+      return fakeRes;
+    },
+    json(payload: unknown) {
+      result.json = payload;
+      return fakeRes;
+    }
+  };
+  let failure: unknown = null;
+  await createMatchHandler(
+    { user, body: [body], params: {}, query: {} } as unknown as Request,
+    fakeRes as unknown as Response,
+    (err?: unknown) => {
+      failure = err;
+    }
+  );
+  if (failure) throw failure instanceof Error ? failure : new Error("Match creation failed.");
+  return result;
+}
 
 export default router;
