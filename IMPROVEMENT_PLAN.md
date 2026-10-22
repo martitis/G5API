@@ -114,7 +114,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] SSE: 25s heartbeat on every `/stream`, emitter listener cap removed
 - [ ] Per-match emitter channels (each stream currently re-queries on every match's event; performance only). There
   are more streams now (match live stream, match list summary stream, PUG queue stream), so this matters more
-- [ ] `tournamentUpdate` is emitted but nothing listens yet (see 5.3 live bracket)
+- [x] `tournamentUpdate` feeds the tournament stream (5.3 live bracket)
 - [ ] Rename Get5 wording in Swagger docs/types to MatchZy
 
 ## Phase 3: G5V stabilization (Vue 2) (G5V branch `phase3-stabilize`)
@@ -187,7 +187,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   tournament_team, tournament_match; slot matches via `POST /matches` + `tournament_match_id`; brackets advance on
   series_end/forfeit/cancel; bracket view, standings, "Start ready matches" on free servers
   - [ ] Challonge as an optional sync target for tournaments (today Challonge sync is per season)
-  - [ ] live bracket updates over SSE (the page polls every 15 s)
+  - [x] live bracket updates over SSE (`GET /tournaments/:id/stream`: tournament writes and match updates)
 - [x] **5.4 PUG queue (opt-in at creation):** team mode on create match; `pug_queue` / `pug_queue_player`; join (Steam
   verified, one queue at a time), leave, ready check with timeout sweep, formation random / balanced (exhaustive up
   to 7v7) / captains (ABBA picks); PUG teams (`team.is_pug`, hidden) and the match created via `createMatchAs()`;
