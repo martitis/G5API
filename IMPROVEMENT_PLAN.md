@@ -159,6 +159,19 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   and players together; bulk add (paste many Steam IDs / profile links, split into separate players); Steam name
   and avatar preview via `POST /teams/members/resolve`; one Save writes info, added/changed and removed players;
   `/teams/create` opens the dialog on the teams list. Also: copy-connect button in match list rows
+- [ ] **5.0c Navigation and search cleanup** (user request, reviewed 2026-10-22):
+  - sidebar duplicates to remove: "Add server" (same dialog as on the servers page, and it reloads the whole page with
+    `router.go(0)`), "Create team" (only redirects to the teams list dialog), "Create match" (button on Matches);
+    create/add actions live only on their lists
+  - one entry per area instead of "All …" / "My …" pairs (matches, teams, seasons; servers only had "My servers"):
+    each list gets an "Only mine" toggle (remembered per browser); `/mymatches`, `/myteams`, `/myseasons`,
+    `/myservers` redirect to their list with the toggle on, so bookmarks keep working
+  - missing entries: team leaderboard (one Leaderboards page with Players / Teams tabs), Metrics ("Stats"), public
+    servers, a PUG queues list (today only cards above the match list)
+  - grouped sidebar with section headers: Play (Matches, Tournaments, PUG queues, Seasons), Manage (Teams, Servers),
+    Stats (Leaderboards, Stats), Admin
+  - search on every list that lacks it: servers, tournaments, player and team leaderboards, audit log (text search)
+  - global search in the app bar (teams, players, matches, tournaments) with a new `GET /search?q=` API route
 - [x] **5.1 Live match view:** round history strip per map (winner lane, CT/T colour, end reason, plant marker,
   halftime), kill feed, pause banner, demo status; `match_round` (+ `event_round`), `map_stats.demo_status`,
   `GET /matches/:id/timeline`, rounds/kills/bombs/pause on `/matches/:id/live/stream`. Fixed: MatchZy's
