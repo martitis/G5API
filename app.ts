@@ -28,6 +28,8 @@ import tournamentsRouter from "./src/routes/tournaments.js";
 import pugsRouter from "./src/routes/pugs.js";
 import searchRouter from "./src/routes/search.js";
 import templatesRouter from "./src/routes/templates.js";
+import scheduledRouter from "./src/routes/scheduled.js";
+import { startScheduleSweep } from "./src/services/scheduler.js";
 import { startPugSweep } from "./src/services/pugs.js";
 import matchesRouter from "./src/routes/matches/matches.js";
 import matchServerRouter from "./src/routes/matches/matchserver.js";
@@ -201,8 +203,13 @@ app.use("/tournaments", tournamentsRouter);
 app.use("/pugs", pugsRouter);
 app.use("/search", searchRouter);
 app.use("/templates", templatesRouter);
+app.use("/scheduled", scheduledRouter);
 // Times out PUG ready checks and expires old queues (tests drive queues themselves).
-if (process.env.NODE_ENV !== "test") startPugSweep();
+if (process.env.NODE_ENV !== "test") {
+  startPugSweep();
+  // Creates scheduled matches when they are due.
+  startScheduleSweep();
+}
 app.use("/v2", v2Router);
 app.use("/v2/demo", v2DemoRouter);
 app.use("/v2/backup", v2BackupRouter);

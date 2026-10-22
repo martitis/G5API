@@ -321,4 +321,30 @@ describe("Test the matches routes", () => {
       expect([200, 403]).toContain(audit.status);
     });
   });
+
+  describe("scheduled matches", () => {
+    const soon = () => new Date(Date.now() + 5 * 60000).toISOString();
+    const match = { team1_id: 4, team2_id: 3, max_maps: 1, veto_mappool: "de_nuke", ignore_server: true };
+    it("Should schedule a match, list it, run it now and refuse to cancel it afterwards.", async () => {
+      const created = await request.post("/scheduled").set("Content-Type", "application/json")
+        .send([{ run_at: soon(), match }]).expect(200);
+      const list = await request.get("/scheduled").expect(200);
+      const entry = list.body.scheduled.find((row) => row.id === created.body.id);
+      expect(entry).toMatchObject({ status: "pending", team1_id: 4, team2_id: 3 });
+      expect(entry.run_at).toMatch(/Z$/);
+      const run = await request.post(`/scheduled/${created.body.id}/run`).expect(200);
+      expect(run.body.scheduled.status).toBe("loaded");
+      expect(run.body.scheduled.match_id).toBeGreaterThan(0);
+      await request.post(`/scheduled/${created.body.id}/cancel`).expect(409);
+    });
+    it("Should cancel a waiting one and refuse bad times and teams.", async () => {
+      const created = await request.post("/scheduled").set("Content-Type", "application/json")
+        .send([{ run_at: soon(), match }]).expect(200);
+      await request.post(`/scheduled/${created.body.id}/cancel`).expect(200);
+      await request.post("/scheduled").set("Content-Type", "application/json")
+        .send([{ run_at: "2020-01-01T00:00:00Z", match }]).expect(412);
+      await request.post("/scheduled").set("Content-Type", "application/json")
+        .send([{ run_at: soon(), match: { ...match, team2_id: 4 } }]).expect(412);
+    });
+  });
 });

@@ -129,7 +129,9 @@ describe("Routes refuse anonymous and malformed requests before touching the dat
     ["post", "/matches/1/control"],
     ["get", "/matches/1/server/status"],
     ["get", "/templates"],
-    ["post", "/templates"]
+    ["post", "/templates"],
+    ["get", "/scheduled"],
+    ["post", "/scheduled"]
   ])("%s %s without login gives 401 JSON", (method, path) => {
     return request[method](path)
       .send([{ season_id: 1, match_id: 1 }])
@@ -307,9 +309,11 @@ describe("buildSummary (match list)", () => {
   });
   const now = new Date("2026-10-02T00:00:00.000Z");
 
-  it("is warmup while no map is running", () => {
+  it("is warmup while no map is running, counting how long it has waited", () => {
     const summary = buildSummary({ match: match(), maps: [], pause: null, canConnect: true, now });
     expect(summary.status).toBe("warmup");
+    // Loaded 2026-10-01 10:00, now 2026-10-02 00:00.
+    expect(summary.waiting_minutes).toBe(14 * 60);
     expect(summary.current_map).toBeNull();
     expect(summary.server).toEqual({ name: "Box", ip: "10.0.0.5", port: 27015, gotv_port: 27020 });
   });

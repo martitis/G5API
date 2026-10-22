@@ -56,6 +56,8 @@ export interface MatchSummary {
     team1_side: "ct" | "t" | null;
   } | null;
   pause: { type: string | null; team: string | null } | null;
+  /** Minutes since the match was loaded while its first map hasn't gone live (no-show check); null otherwise. */
+  waiting_minutes: number | null;
   /** Only for viewers who may connect (owner, admins, players of both teams, spectators). */
   server: { name: string | null; ip: string; port: number; gotv_port: number | null } | null;
 }
@@ -156,6 +158,10 @@ export function buildSummary(input: SummaryInput): MatchSummary {
           }
         : null,
     pause: status === "paused" ? { type: input.pause?.pause_type ?? null, team: input.pause?.team_paused ?? null } : null,
+    waiting_minutes:
+      status === "warmup" && maps.length === 0 && startTime
+        ? Math.max(0, Math.floor(((input.now ?? new Date()).getTime() - startTime.getTime()) / 60000))
+        : null,
     server:
       input.canConnect && !["finished", "cancelled"].includes(status) && m.ip_string
         ? {
