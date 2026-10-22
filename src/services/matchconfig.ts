@@ -35,6 +35,8 @@ export interface MatchConfigInput {
   spectators: Array<{ auth: string; spectator_name: string | null }>;
   /** Whether demo uploads are enabled on this API (server.uploadDemos). */
   uploadDemos: boolean;
+  /** The server's join password (game_server.join_password), sent as sv_password. */
+  serverPassword?: string | null;
 }
 
 export interface MatchZyTeam {
@@ -164,6 +166,7 @@ export function buildMatchConfig(input: MatchConfigInput, apiKey: string): Match
       config.cvars[row.cvar_name] = String(row.cvar_value);
     }
   }
+  if (input.serverPassword) config.cvars.sv_password = input.serverPassword;
   Object.assign(config.cvars, callbackCvars(apiKey, input.uploadDemos));
 
   return config;

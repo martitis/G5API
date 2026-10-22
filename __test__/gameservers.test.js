@@ -180,4 +180,11 @@ describe("Test the game server routes.", () => {
       .send([{ action: "start" }])
       .expect(404);
   });
+  it("Should refuse a join password that would break the connect link.", () => {
+    return request
+      .post("/servers/")
+      .set("Content-Type", "application/json")
+      .send([{ ip_string: "10.0.0.9", port: 27015, rcon_password: "x", display_name: "Bad", join_password: "pass word;quit" }])
+      .expect(412);
+  });
 });

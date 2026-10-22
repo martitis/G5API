@@ -106,6 +106,11 @@ describe("buildMatchConfig (MatchZy match config)", () => {
     expect(noDemos.cvars.matchzy_demo_upload_url).toBeUndefined();
   });
 
+  it("sends the server's join password as sv_password", () => {
+    expect(buildMatchConfig(baseInput(), "k").cvars.sv_password).toBeUndefined();
+    expect(buildMatchConfig({ ...baseInput(), serverPassword: "scrim-42" }, "k").cvars.sv_password).toBe("scrim-42");
+  });
+
   it("refuses matches MatchZy could not load", () => {
     expect(() => buildMatchConfig(baseInput({ veto_mappool: null }), "k")).toThrow(MatchConfigError);
     expect(() => buildMatchConfig(baseInput({ veto_mappool: "de_mirage" }), "k")).toThrow(MatchConfigError);
@@ -315,7 +320,7 @@ describe("buildSummary (match list)", () => {
     // Loaded 2026-10-01 10:00, now 2026-10-02 00:00.
     expect(summary.waiting_minutes).toBe(14 * 60);
     expect(summary.current_map).toBeNull();
-    expect(summary.server).toEqual({ name: "Box", ip: "10.0.0.5", port: 27015, gotv_port: 27020 });
+    expect(summary.server).toEqual({ name: "Box", ip: "10.0.0.5", port: 27015, gotv_port: 27020, password: null });
   });
 
   it("shows the live map with its round score and sides, and maps already played", () => {

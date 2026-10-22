@@ -1388,7 +1388,8 @@ router.get("/:match_id/config", async (req, res, next) => {
       team1Auths,
       team2Auths,
       matchCvars,
-      matchSpecs
+      matchSpecs,
+      matchServer
     ] = await Promise.all([
       db.query(teamSql, [match.team1_id]),
       db.query(teamSql, [match.team2_id]),
@@ -1401,7 +1402,8 @@ router.get("/:match_id/config", async (req, res, next) => {
       db.query(
         "SELECT auth, spectator_name FROM match_spectator WHERE match_id = ?",
         [matchID]
-      )
+      ),
+      db.query("SELECT join_password FROM game_server WHERE id = ?", [match.server_id])
     ]);
     const matchConfig: MatchZyConfig = buildMatchConfig(
       {
@@ -1419,7 +1421,8 @@ router.get("/:match_id/config", async (req, res, next) => {
           auth: string;
           spectator_name: string | null;
         }>,
-        uploadDemos: Boolean(config.get("server.uploadDemos"))
+        uploadDemos: Boolean(config.get("server.uploadDemos")),
+        serverPassword: (matchServer[0]?.join_password as string | null | undefined) || null
       },
       match.api_key
     );

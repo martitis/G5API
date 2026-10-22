@@ -59,7 +59,14 @@ export interface MatchSummary {
   /** Minutes since the match was loaded while its first map hasn't gone live (no-show check); null otherwise. */
   waiting_minutes: number | null;
   /** Only for viewers who may connect (owner, admins, players of both teams, spectators). */
-  server: { name: string | null; ip: string; port: number; gotv_port: number | null } | null;
+  server: {
+    name: string | null;
+    ip: string;
+    port: number;
+    gotv_port: number | null;
+    /** The join password (sv_password), if the server has one. */
+    password: string | null;
+  } | null;
 }
 
 export interface Viewer {
@@ -168,7 +175,8 @@ export function buildSummary(input: SummaryInput): MatchSummary {
             name: m.server_name ?? null,
             ip: m.ip_string,
             port: Number(m.port),
-            gotv_port: m.gotv_port == null ? null : Number(m.gotv_port)
+            gotv_port: m.gotv_port == null ? null : Number(m.gotv_port),
+            password: m.join_password ? String(m.join_password) : null
           }
         : null
   };
@@ -287,7 +295,7 @@ export async function loadSummaries(
       "m.season_id, m.is_pug, m.private_match, u.name AS owner_name, " +
       "t1.tag AS team1_tag, t1.logo AS team1_logo, t1.flag AS team1_flag, " +
       "t2.tag AS team2_tag, t2.logo AS team2_logo, t2.flag AS team2_flag, " +
-      "gs.display_name AS server_name, gs.ip_string, gs.port, gs.gotv_port " +
+      "gs.display_name AS server_name, gs.ip_string, gs.port, gs.gotv_port, gs.join_password " +
       "FROM `match` m " +
       "LEFT JOIN user u ON u.id = m.user_id " +
       "LEFT JOIN team t1 ON t1.id = m.team1_id " +
