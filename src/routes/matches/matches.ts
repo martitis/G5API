@@ -1379,6 +1379,11 @@ router.get("/:match_id/config", async (req, res, next) => {
  */
 router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
+    // Matches are run by the panel's admins.
+    if (!Utils.adminCheck(req.user!)) {
+      res.status(403).json({ message: "Only admins can create matches." });
+      return;
+    }
     const cvarError: string | null = Utils.validateCvars(
       req.body[0]?.match_cvars
     );

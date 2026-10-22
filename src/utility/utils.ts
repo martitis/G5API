@@ -249,8 +249,9 @@ class Utils {
    * @param {user} user - the users session object.
    */
   static adminCheck(user: User) {
-    if (user) return user.super_admin === 0 && user.admin === 0 ? false : true;
-    else return false;
+    // Flags arrive as 0/1 from MySQL but can be booleans or strings in a session; only a set flag counts
+    // (the old "=== 0" checks made false, "0" or a missing flag count as admin).
+    return Boolean(user) && (Number(user.admin) > 0 || Number(user.super_admin) > 0);
   }
 
   /** Checks if a user is a super admin in the system during their session.
@@ -261,8 +262,7 @@ class Utils {
    * @param {user} user - the users session object.
    */
   static superAdminCheck(user: User) {
-    if (user) return user.super_admin === 0 ? false : true;
-    else return false;
+    return Boolean(user) && Number(user.super_admin) > 0;
   }
 
   /** Converts a Steam ID to Steam64.

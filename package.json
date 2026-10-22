@@ -58,7 +58,7 @@
     "test:leaderboard": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --testTimeout=10000 --detectOpenHandles --forceExit --config ./jest_config/jest.leaderboard.config.cjs",
     "test:mapstats": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --testTimeout=10000 --detectOpenHandles --forceExit --config ./jest_config/jest.mapstats.config.cjs",
     "test:maplists": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --testTimeout=10000 --detectOpenHandles --forceExit --config ./jest_config/jest.maplist.config.cjs",
-    "test:matches": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --testTimeout=10000 --detectOpenHandles --forceExit --config ./jest_config/jest.matches.config.cjs",
+    "test:matches": "node scripts/test-admin.mjs admin && cross-env NODE_OPTIONS=--experimental-vm-modules jest --testTimeout=10000 --detectOpenHandles --forceExit --config ./jest_config/jest.matches.config.cjs && node scripts/test-admin.mjs reset",
     "test:playerstats": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --testTimeout=10000 --detectOpenHandles --forceExit --config ./jest_config/jest.playerstats.config.cjs",
     "test:removeID": "node scripts/test-admin.mjs reset",
     "test:seasons": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --testTimeout=10000 --detectOpenHandles --forceExit --config ./jest_config/jest.seasons.config.cjs",

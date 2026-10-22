@@ -47,3 +47,9 @@ build/Release
 .env.test
 
 .vscode/
+
+# Uploaded by game servers (and by the test suite) at runtime.
+public/backups/*
+!public/backups/.gitkeep
+public/demos/*
+!public/demos/.gitkeep

@@ -33,7 +33,8 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
 - `server.dbKey` must be exactly 16 bytes (the AES key that encrypts RCON passwords and API keys in the DB).
 - `server.apiURL` is the public base URL that the game server calls back on. Always build URLs from it with
   `Utils.apiUrl("/path")`, which handles trailing slashes.
-- `admins.steam_ids` / `super_admins.steam_ids` overwrite the user's role flags on every Steam login.
+- `admins.steam_ids` / `super_admins.steam_ids` overwrite the user's role flags on every Steam login. Only admins
+  (admin or super admin) can create matches.
 - Deployment: bare Node + pm2 behind nginx/Caddy. SSE routes need `proxy_buffering off` and long timeouts.
 
 ## Layout

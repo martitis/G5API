@@ -369,3 +369,20 @@ describe("buildSummary (match list)", () => {
     );
   });
 });
+
+describe("Utils.adminCheck / superAdminCheck", () => {
+  it("only counts flags that are set", () => {
+    for (const flags of [{ admin: 0, super_admin: 0 }, { admin: false, super_admin: false }, { admin: "0", super_admin: "0" }, {}]) {
+      expect(Utils.adminCheck(flags)).toBe(false);
+      expect(Utils.superAdminCheck(flags)).toBe(false);
+    }
+    expect(Utils.adminCheck(null)).toBe(false);
+    expect(Utils.superAdminCheck(undefined)).toBe(false);
+  });
+  it("accepts numeric, boolean and string flags", () => {
+    expect(Utils.adminCheck({ admin: 1, super_admin: 0 })).toBe(true);
+    expect(Utils.adminCheck({ admin: false, super_admin: true })).toBe(true);
+    expect(Utils.superAdminCheck({ super_admin: "1" })).toBe(true);
+    expect(Utils.superAdminCheck({ admin: 1, super_admin: 0 })).toBe(false);
+  });
+});

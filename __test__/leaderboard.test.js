@@ -78,3 +78,18 @@ describe("Test the match list summary route", () => {
     expect(cancelled.body.matches.length).toBeLessThanOrEqual(100);
   });
 });
+
+describe("Test that only admins create matches", () => {
+  // After the matches suite the mock user is a regular user again (scripts/test-admin.mjs reset).
+  beforeAll(() => request.get("/auth/steam/return").expect(302));
+  it("Should refuse match creation for a regular user.", () => {
+    return request
+      .post("/matches/")
+      .set("Content-Type", "application/json")
+      .send([{ server_id: 1, team1_id: 1, team2_id: 2, max_maps: 1, veto_mappool: "de_mirage" }])
+      .expect(403)
+      .expect((result) => {
+        expect(result.body.message).toMatch(/Only admins/);
+      });
+  });
+});
