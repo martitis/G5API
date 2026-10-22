@@ -14,13 +14,18 @@ const dbCfg = {
   user: config.get(env + ".user"),
   password: config.get(env + ".password"),
   database: config.get(env + ".database"),
-  connectionLimit: config.get(env + ".connectionLimit")
+  connectionLimit: config.get(env + ".connectionLimit"),
+  // All times are UTC: the code writes new Date().toISOString() strings, and Date values are read back as UTC.
+  timezone: "Z"
 } as PoolOptions;
 const connPool = createPool(dbCfg);
 // Team member lists and season cvars are built with GROUP_CONCAT, which MySQL cuts at
 // 1024 bytes by default (big teams came back as invalid JSON).
 connPool.on("connection", (conn) => {
-  conn.query("SET SESSION group_concat_max_len = 1048576");
+  // NOW() / CURRENT_TIMESTAMP defaults in UTC too, matching the times the code writes.
+  void Promise.resolve(conn.query("SET SESSION group_concat_max_len = 1048576, time_zone = '+00:00'")).catch(
+    (err: unknown) => console.error("Could not set up a database connection:", err)
+  );
 });
 
 class Database {
@@ -30,8 +35,7 @@ class Database {
 
   async query(sql: string, args?: object): Promise<RowDataPacket[]> {
     try {
-      let result: [RowDataPacket[], FieldPacket[]];
-      result = await connPool.query<RowDataPacket[]>(sql, args);
+      const result: [RowDataPacket[], FieldPacket[]] = await connPool.query<RowDataPacket[]>(sql, args);
       return result[0];
     } catch (error) {
       console.error("SQL ERROR SQL ERROR SQL ERROR SQL ERROR SQL ERROR\n" + error);
@@ -40,7 +44,7 @@ class Database {
   }
   
   async buildUpdateStatement(objValues: IStringIndex): Promise<IStringIndex> {
-    for (let key in objValues) {
+    for (const key in objValues) {
       if (objValues[key] == null || objValues[key] == undefined) delete objValues[key];
     }
     return objValues;
@@ -48,12 +52,12 @@ class Database {
 
   async setupAdmins(): Promise<void> {
     try {
-      let listOfAdmins: Array<string> = (config.get("admins.steam_ids") as string).split(',');
-      let listofSuperAdmins: Array<string> = (config.get("super_admins.steam_ids") as string).split(',');
+      const listOfAdmins: Array<string> = config.get<string>("admins.steam_ids").split(',');
+      const listofSuperAdmins: Array<string> = config.get<string>("super_admins.steam_ids").split(',');
       // Get list of admins from database and compare list and add new admins.
       // Only accounts whose Steam ID was proven by a Steam login can be promoted.
-      let updateAdmins: string = "UPDATE user SET admin = 1, roles_from_config = 1 WHERE steam_verified = 1 AND steam_id IN (?)";
-      let updateSuperAdmins: string = "UPDATE user SET super_admin = 1, roles_from_config = 1 WHERE steam_verified = 1 AND steam_id IN (?)";
+      const updateAdmins: string = "UPDATE user SET admin = 1, roles_from_config = 1 WHERE steam_verified = 1 AND steam_id IN (?)";
+      const updateSuperAdmins: string = "UPDATE user SET super_admin = 1, roles_from_config = 1 WHERE steam_verified = 1 AND steam_id IN (?)";
       await connPool.query(updateAdmins, [listOfAdmins]);
       await connPool.query(updateSuperAdmins, [listofSuperAdmins]);
     } catch (err) {
@@ -61,5 +65,5 @@ class Database {
     }
   }
 }
-let db = new Database();
+const db = new Database();
 export {db};
