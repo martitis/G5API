@@ -92,7 +92,9 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] Rate limiter keyed on the match key without a DB query
 - [x] unique (match_id, map_number) on map_stats (migration `20261022220000` skips it with a warning when duplicates
   exist instead of deleting stats); going_live inserts `ON DUPLICATE KEY`; `POST /mapstats` answers 409 for a second row
-- [ ] zod schema per event
+- [x] zod schema per event (`services/eventschemas.ts`, unit tested): checks only the fields the handlers read, no
+  conversion, extra fields allowed; a malformed event gets 400 and an API log line "Malformed MatchZy event". Built
+  from the payload types, not from captured live events, so watch the log after the next real match
 ### Matches / server actions
 - [x] Bomb SQL spaces, paused route param, pause SSE terminator, bomb stream sends all events
 - [x] Create: atomic server reservation (409), refuses offline/busy servers, undoes the match when MatchZy doesn't load it; 404 for missing server/teams

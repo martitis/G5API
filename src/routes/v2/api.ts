@@ -38,6 +38,7 @@ import { Get5_OnPlayerDeath } from "../../types/map_flow/Get5_OnPlayerDeath.js";
 import { Get5_OnBombEvent } from "../../types/map_flow/Get5_OnBombEvent.js";
 import { Get5_OnRoundStart } from "../../types/map_flow/Get5_OnRoundStart.js";
 import Utils from "../../utility/utils.js";
+import { eventProblem } from "../../services/eventschemas.js";
 import GlobalEmitter from "../../utility/emitter.js";
 import { Get5_OnRoundEnd } from "../../types/map_flow/Get5_OnRoundEnd.js";
 
@@ -140,6 +141,13 @@ router.post("/", basicRateLimit, async (req, res) => {
             "Match already finalized or and invalid API key has been given."
         });
       }
+    }
+
+    // A malformed event would fail halfway through a handler; refuse it whole instead.
+    const problem: string | null = eventProblem(req.body);
+    if (problem) {
+      console.error(`Malformed MatchZy event for match ${matchId}: ${problem}`);
+      return res.status(400).send({ message: problem });
     }
 
     switch (eventType.event) {

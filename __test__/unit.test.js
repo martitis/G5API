@@ -7,6 +7,7 @@ import { buildMatchConfig, callbackCvars, parseMapPool, MatchConfigError } from 
 import { buildSummary } from "../src/services/matchsummary.js";
 import { normalizeSide } from "../src/services/mapflowservices.js";
 import { cleanSettings } from "../src/services/tournaments.js";
+import { eventProblem } from "../src/services/eventschemas.js";
 import {
   doubleElimination,
   resolveBracket,
@@ -660,5 +661,42 @@ describe("tournament settings", () => {
     expect(cleanSettings({ challonge_url: " sub-abc_123 " }).challonge_url).toBe("sub-abc_123");
     expect(cleanSettings({ challonge_url: "../matches?x=1" }).challonge_url).toBeUndefined();
     expect(cleanSettings({}).challonge_url).toBeUndefined();
+  });
+});
+
+describe("MatchZy event schemas", () => {
+  const roundTeam = (id) => ({
+    id,
+    name: "Team " + id,
+    series_score: 0,
+    score: 3,
+    score_ct: 2,
+    score_t: 1,
+    players: [{ steamid: "76561198000000001", name: "A", stats: { kills: 1 } }]
+  });
+  it("accepts real-shaped events, including null attacker, assist and weapon", () => {
+    expect(eventProblem({ event: "going_live", matchid: 12, map_number: 0 })).toBeNull();
+    expect(
+      eventProblem({
+        event: "round_end", matchid: 12, map_number: 0, round_number: 4, round_time: 51234, reason: 9,
+        winner: { side: "3", team: "team1" }, team1: roundTeam("1"), team2: roundTeam(2)
+      })
+    ).toBeNull();
+    expect(
+      eventProblem({
+        event: "player_death", matchid: "12", map_number: 0, round_number: 4, round_time: 1000,
+        player: { steamid: 0, name: "BOT Bob", is_bot: true }, attacker: null, assist: null, weapon: null,
+        headshot: false
+      })
+    ).toBeNull();
+    expect(eventProblem({ event: "series_start", matchid: 12, num_maps: 3 })).toBeNull();
+  });
+  it("names the field that is wrong", () => {
+    expect(eventProblem({ event: "going_live", matchid: 12 })).toMatch(/^going_live: map_number/);
+    expect(
+      eventProblem({ event: "player_death", matchid: 12, map_number: 0, round_number: 1, player: { name: "x" } })
+    ).toMatch(/^player_death: player\.steamid/);
+    expect(eventProblem({ event: "round_start", matchid: 12, map_number: -1, round_number: 0 })).toMatch(/map_number/);
+    expect(eventProblem({ matchid: 12 })).toMatch(/no event name/);
   });
 });
