@@ -11,7 +11,7 @@
  
  import Utils from "../../utility/utils.js";
  
- import GlobalEmitter from "../../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { PlayerInfo } from "../../types/playerstats/PlayerObject.js";
 import { Response } from "express-serve-static-core";
@@ -405,15 +405,16 @@ import { Response } from "express-serve-static-core";
       res.write(playerString);
     };
 
-    GlobalEmitter.on("playerStatsExtraUpdate", playerStreamStats);
+    const playerStreamStatsForMatch = forMatch(matchID, playerStreamStats);
+    GlobalEmitter.on("playerStatsExtraUpdate", playerStreamStatsForMatch);
 
     res.write(playerString);
     req.on("close", () => {
-      GlobalEmitter.removeListener("playerStatsExtraUpdate", playerStreamStats);
+      GlobalEmitter.removeListener("playerStatsExtraUpdate", playerStreamStatsForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("playerStatsExtraUpdate", playerStreamStats);
+      GlobalEmitter.removeListener("playerStatsExtraUpdate", playerStreamStatsForMatch);
       res.end();
     });
   } catch (err) {

@@ -16,7 +16,7 @@ import { audited, firstBody } from "../../utility/audit.js";
 
 import GameServer from "../../utility/serverrcon.js";
 
-import GlobalEmitter from "../../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../../utility/emitter.js";
 
 import config from "config";
 import {
@@ -738,15 +738,16 @@ router.get("/:match_id/stream", async (req, res, next) => {
       res.write(matchString);
     };
 
-    GlobalEmitter.on("matchUpdate", matchStreamStatus);
+    const matchStreamStatusForMatch = forMatch(matchID, matchStreamStatus);
+    GlobalEmitter.on("matchUpdate", matchStreamStatusForMatch);
     res.write(matchString);
 
     req.on("close", () => {
-      GlobalEmitter.removeListener("matchUpdate", matchStreamStatus);
+      GlobalEmitter.removeListener("matchUpdate", matchStreamStatusForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("matchUpdate", matchStreamStatus);
+      GlobalEmitter.removeListener("matchUpdate", matchStreamStatusForMatch);
       res.end();
     });
   } catch (err) {
@@ -912,7 +913,7 @@ router.get("/:match_id/live/stream", async (req, res, next) => {
     const timers = new Map<LiveDataset, NodeJS.Timeout>();
     const listeners: Array<[string, () => void]> = [];
     for (const dataset of datasets) {
-      const listener = () => {
+      const listener = forMatch(matchID, () => {
         if (timers.has(dataset)) return;
         timers.set(
           dataset,
@@ -921,7 +922,7 @@ router.get("/:match_id/live/stream", async (req, res, next) => {
             send(dataset).catch((err) => console.error("Live stream query failed:", err));
           }, 250)
         );
-      };
+      });
       for (const emitterEvent of dataset.on) {
         GlobalEmitter.on(emitterEvent, listener);
         listeners.push([emitterEvent, listener]);
@@ -1001,15 +1002,16 @@ router.get("/:match_id/paused/stream", async (req, res, next) => {
       res.write(matchPauseString);
     };
 
-    GlobalEmitter.on("matchUpdate", matchPauseStreamStatus);
+    const matchPauseStreamStatusForMatch = forMatch(matchId, matchPauseStreamStatus);
+    GlobalEmitter.on("matchUpdate", matchPauseStreamStatusForMatch);
     res.write(matchPauseString);
 
     req.on("close", () => {
-      GlobalEmitter.removeListener("matchUpdate", matchPauseStreamStatus);
+      GlobalEmitter.removeListener("matchUpdate", matchPauseStreamStatusForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("matchUpdate", matchPauseStreamStatus);
+      GlobalEmitter.removeListener("matchUpdate", matchPauseStreamStatusForMatch);
       res.end();
     });
   } catch (err) {
@@ -1130,15 +1132,16 @@ router.get("/:match_id/bombs/stream", async (req, res, next) => {
       res.write(bombInfoString);
     };
 
-    GlobalEmitter.on("bombEvent", matchStreamStatus);
+    const matchStreamStatusForMatch = forMatch(matchID, matchStreamStatus);
+    GlobalEmitter.on("bombEvent", matchStreamStatusForMatch);
     res.write(bombInfoString);
 
     req.on("close", () => {
-      GlobalEmitter.removeListener("bombEvent", matchStreamStatus);
+      GlobalEmitter.removeListener("bombEvent", matchStreamStatusForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("bombEvent", matchStreamStatus);
+      GlobalEmitter.removeListener("bombEvent", matchStreamStatusForMatch);
       res.end();
     });
   } catch (err) {

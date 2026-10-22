@@ -12,7 +12,7 @@ import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
 
-import GlobalEmitter from "../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { MapStats } from "../types/mapstats/MapStats.js";
 import { AccessMessage } from "../types/mapstats/AccessMessage.js";
@@ -210,15 +210,16 @@ router.get("/:match_id", async (req, res, next) => {
       res.write(mapStatString);
     };
 
-    GlobalEmitter.on("mapStatUpdate", mapStatStreamStats);
+    const mapStatStreamStatsForMatch = forMatch(matchID, mapStatStreamStats);
+    GlobalEmitter.on("mapStatUpdate", mapStatStreamStatsForMatch);
 
     res.write(mapStatString);
     req.on("close", () => {
-      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStats);
+      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStatsForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStats);
+      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStatsForMatch);
       res.end();
     });
 
@@ -290,15 +291,16 @@ router.get("/:match_id/:map_number/stream", async (req, res, next) => {
       }
     };
 
-    GlobalEmitter.on("mapStatUpdate", mapStatStreamStats);
+    const mapStatStreamStatsForMatch = forMatch(matchID, mapStatStreamStats);
+    GlobalEmitter.on("mapStatUpdate", mapStatStreamStatsForMatch);
 
     res.write(mapStatString);
     req.on("close", () => {
-      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStats);
+      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStatsForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStats);
+      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStatsForMatch);
       res.end();
     });
   } catch (err) {

@@ -8,4 +8,17 @@ class GlobalEmitter extends EventEmitter {
     }
 }
 
+/**
+ * A listener for one match's stream. Events emitted with a match id (`emit("matchUpdate", matchId)`) only reach
+ * that match's streams; events emitted without one still reach every stream.
+ */
+export function forMatch(
+    matchId: string | number,
+    listener: () => unknown
+): (eventMatchId?: string | number | null) => void {
+    return (eventMatchId?: string | number | null) => {
+        if (eventMatchId == null || String(eventMatchId) === String(matchId)) void listener();
+    };
+}
+
 export default new GlobalEmitter();

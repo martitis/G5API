@@ -11,7 +11,7 @@ import {db} from "../../services/db.js";
 
 import Utils from "../../utility/utils.js";
 
-import GlobalEmitter from "../../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { Player } from "../../types/leaderboard/Player.js";
 import { PlayerDatabaseObject } from "../../types/playerstats/PlayerDatabaseObject.js";
@@ -502,15 +502,16 @@ router.get("/match/:match_id", async (req, res, next) => {
       res.write(playerString);
     };
 
-    GlobalEmitter.on("playerStatsUpdate", playerStreamStats);
+    const playerStreamStatsForMatch = forMatch(matchID, playerStreamStats);
+    GlobalEmitter.on("playerStatsUpdate", playerStreamStatsForMatch);
 
     res.write(playerString);
     req.on("close", () => {
-      GlobalEmitter.removeListener("playerStatsUpdate", playerStreamStats);
+      GlobalEmitter.removeListener("playerStatsUpdate", playerStreamStatsForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("playerStatsUpdate", playerStreamStats);
+      GlobalEmitter.removeListener("playerStatsUpdate", playerStreamStatsForMatch);
       res.end();
     });
   } catch (err) {

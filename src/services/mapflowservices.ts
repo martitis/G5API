@@ -115,7 +115,7 @@ class MapFlowService {
         // A going_live sent twice at once: the unique (match_id, map_number) key keeps one row.
         await db.query("INSERT INTO map_stats SET ? ON DUPLICATE KEY UPDATE id = id", insUpdStatement);
       }
-      GlobalEmitter.emit("mapStatUpdate");
+      GlobalEmitter.emit("mapStatUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
       return sendError(res, error);
@@ -174,7 +174,7 @@ class MapFlowService {
       insertObj = await db.buildUpdateStatement(insertObj);
       await db.query("INSERT INTO player_stat_extras SET ?", insertObj);
 
-      GlobalEmitter.emit("playerStatsExtraUpdate");
+      GlobalEmitter.emit("playerStatsExtraUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
       return sendError(res, error);
@@ -235,7 +235,7 @@ class MapFlowService {
 
       insObject = await db.buildUpdateStatement(insObject);
       await db.query("INSERT INTO match_bomb_plants SET ?", insObject);
-      GlobalEmitter.emit("bombEvent");
+      GlobalEmitter.emit("bombEvent", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
       return sendError(res, error);
@@ -278,7 +278,7 @@ class MapFlowService {
           );
         }
       }
-      GlobalEmitter.emit("playerStatsUpdate");
+      GlobalEmitter.emit("playerStatsUpdate", event.matchid);
 
       // Rounds played so far, from the score (doesn't depend on how MatchZy numbers rounds).
       const roundsPlayed: number = (Number(event.team1.score) || 0) + (Number(event.team2.score) || 0);
@@ -324,8 +324,8 @@ class MapFlowService {
         // A restore to an earlier round drops the rounds after it.
         await db.query("DELETE FROM match_round WHERE map_id = ? AND round_number > ?", [mapStat.id, roundsPlayed]);
       }
-      GlobalEmitter.emit("mapStatUpdate");
-      GlobalEmitter.emit("matchUpdate");
+      GlobalEmitter.emit("mapStatUpdate", event.matchid);
+      GlobalEmitter.emit("matchUpdate", event.matchid);
 
       // Live Challonge scores for BO1s. A Challonge outage must not fail the round for the game server.
       sqlString = "SELECT max_maps, season_id FROM `match` WHERE id = ?";
@@ -381,8 +381,8 @@ class MapFlowService {
         ]);
         await db.query("UPDATE map_stats SET round_restored = 0 WHERE id = ?", [mapStat.id]);
         // Only emit if there was an actual update.
-        GlobalEmitter.emit("playerStatsExtraUpdate");
-        GlobalEmitter.emit("bombEvent");
+        GlobalEmitter.emit("playerStatsExtraUpdate", event.matchid);
+        GlobalEmitter.emit("bombEvent", event.matchid);
       }
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
@@ -426,7 +426,7 @@ class MapFlowService {
         insUpdStatement = await db.buildUpdateStatement({ match_id: event.matchid, ...insUpdStatement });
         await db.query("INSERT INTO match_pause SET ?", insUpdStatement);
       }
-      GlobalEmitter.emit("matchUpdate");
+      GlobalEmitter.emit("matchUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
       return sendError(res, error);

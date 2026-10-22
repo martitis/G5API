@@ -109,7 +109,7 @@ class SeriesFlowService {
       }
       // Advances the match's tournament bracket (never throws).
       await onMatchChanged(event.matchid);
-      GlobalEmitter.emit("matchUpdate");
+      GlobalEmitter.emit("matchUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
       console.error(error);
@@ -178,7 +178,7 @@ class SeriesFlowService {
         );
       }
 
-      GlobalEmitter.emit("mapStatUpdate");
+      GlobalEmitter.emit("mapStatUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
       console.error(error);
@@ -279,7 +279,7 @@ class SeriesFlowService {
       insertObj = await db.buildUpdateStatement(insertObj);
       sqlString = "INSERT INTO veto_side SET ?";
       await db.query(sqlString, [insertObj]);
-      GlobalEmitter.emit("vetoSideUpdate");
+      GlobalEmitter.emit("vetoSideUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
       console.error(error);
@@ -310,8 +310,8 @@ class SeriesFlowService {
         "UPDATE `map_stats` SET round_restored = 1 WHERE match_id = ? AND map_number = ?",
         [event.matchid, event.map_number]
       );
-      GlobalEmitter.emit("playerStatsExtraUpdate");
-      GlobalEmitter.emit("bombEvent");
+      GlobalEmitter.emit("playerStatsExtraUpdate", event.matchid);
+      GlobalEmitter.emit("bombEvent", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
       console.error(error);
@@ -356,7 +356,7 @@ class SeriesFlowService {
 
     sqlString = "INSERT INTO veto SET ?";
     await db.query(sqlString, [insertObj]);
-    GlobalEmitter.emit("vetoUpdate");
+    GlobalEmitter.emit("vetoUpdate", matchid);
   }
 }
 

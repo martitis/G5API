@@ -8,6 +8,7 @@ import { buildSummary } from "../src/services/matchsummary.js";
 import { normalizeSide } from "../src/services/mapflowservices.js";
 import { cleanSettings } from "../src/services/tournaments.js";
 import { eventProblem } from "../src/services/eventschemas.js";
+import { forMatch } from "../src/utility/emitter.js";
 import {
   doubleElimination,
   resolveBracket,
@@ -698,5 +699,16 @@ describe("MatchZy event schemas", () => {
     ).toMatch(/^player_death: player\.steamid/);
     expect(eventProblem({ event: "round_start", matchid: 12, map_number: -1, round_number: 0 })).toMatch(/map_number/);
     expect(eventProblem({ matchid: 12 })).toMatch(/no event name/);
+  });
+});
+
+describe("forMatch (per-match stream listeners)", () => {
+  it("skips other matches' events and keeps unscoped ones", () => {
+    const calls = [];
+    const listener = forMatch("7", () => calls.push("x"));
+    listener(7);
+    listener("8");
+    listener();
+    expect(calls).toEqual(["x", "x"]);
   });
 });

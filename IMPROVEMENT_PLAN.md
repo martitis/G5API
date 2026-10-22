@@ -119,8 +119,9 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 ### Cleanup / SSE
 - [x] `routes/legacy/api.ts` deleted; `yarn build` cleans `dist/`
 - [x] SSE: 25s heartbeat on every `/stream`, emitter listener cap removed
-- [ ] Per-match emitter channels (each stream currently re-queries on every match's event; performance only). There
-  are more streams now (match live stream, match list summary stream, PUG queue stream), so this matters more
+- [x] Per-match events: webhook handlers emit with the match id and per-match streams listen through `forMatch()`
+  (`utility/emitter.ts`), so a round in one match no longer re-queries every other match's streams. Emits from the
+  REST routes are still unscoped (they reach every stream, as before)
 - [x] `tournamentUpdate` feeds the tournament stream (5.3 live bracket)
 - [ ] Rename Get5 wording in Swagger docs/types to MatchZy
 

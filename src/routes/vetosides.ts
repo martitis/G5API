@@ -11,7 +11,7 @@ import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
 
-import GlobalEmitter from "../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { AccessMessage } from "../types/mapstats/AccessMessage.js";
 import { VetoSideObject } from "../types/vetoes/VetoSideObject.js";
@@ -183,16 +183,17 @@ router.get("/:match_id/stream", async (req, res, next) => {
       res.write(vetoEventString);
     };
     
-    GlobalEmitter.on("vetoSideUpdate", vetoStreamData);
+    const vetoStreamDataForMatch = forMatch(matchId, vetoStreamData);
+    GlobalEmitter.on("vetoSideUpdate", vetoStreamDataForMatch);
 
     res.write(vetoEventString);
 
     req.on("close", () => {
-      GlobalEmitter.removeListener("vetoSideUpdate", vetoStreamData);
+      GlobalEmitter.removeListener("vetoSideUpdate", vetoStreamDataForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("vetoSideUpdate", vetoStreamData);
+      GlobalEmitter.removeListener("vetoSideUpdate", vetoStreamDataForMatch);
       res.end();
     });
   } catch (err) {
