@@ -228,7 +228,9 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   - [x] GOTV link (match page and match list rows)
   - [x] map pool per season (season defaults) and per tournament (tournament settings)
   - [x] copy connect command (match page and match list rows)
-  - [ ] connect links with the server password (servers don't store a join password yet)
+  - [x] connect links with the server password (`game_server.join_password`, sent as `sv_password` in the match
+    config; `steam://connect/ip:port/password` and `connect ip:port; password …`). The cvar stays set on the server
+    after the match
 
 ## Phase 6: Ops
 - [ ] Node 22 LTS; pm2 ecosystem with env. nginx/Caddy examples with SSE settings exist in the panel repo
