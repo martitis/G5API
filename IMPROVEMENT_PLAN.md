@@ -90,7 +90,9 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] `backup_loaded` also drops bomb events; `round_restored` reset after cleanup
 - [x] `trade_kills` stored (migration `20261021120000`)
 - [x] Rate limiter keyed on the match key without a DB query
-- [ ] zod schema per event; unique (match_id, map_number) on map_stats (needs a data check before adding the key)
+- [x] unique (match_id, map_number) on map_stats (migration `20261022220000` skips it with a warning when duplicates
+  exist instead of deleting stats); going_live inserts `ON DUPLICATE KEY`; `POST /mapstats` answers 409 for a second row
+- [ ] zod schema per event
 ### Matches / server actions
 - [x] Bomb SQL spaces, paused route param, pause SSE terminator, bomb stream sends all events
 - [x] Create: atomic server reservation (409), refuses offline/busy servers, undoes the match when MatchZy doesn't load it; 404 for missing server/teams
@@ -206,7 +208,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   - copy buttons work on plain-HTTP LAN addresses (clipboard fallback); match title templates (`{MAPNUMBER}`) hidden
   - test-suite backups were committed; `public/backups` and `public/demos` are now gitignored
   - the `POST /matches` handler is `createMatchHandler` / `createMatchAs()` (used by PUG queues)
-  - database times are UTC end to end (mysql2 read DATETIME as local time; rows written before by NOW() stay shifted)
+  - database times are UTC end to end (mysql2 read DATETIME as local time; rows written before by NOW() stay shifted);
+    the session settings now run on the pool's callback connection (the promise form logged an error)
 - [ ] **5.5 Admin match control center** (RCON, sanitized, confirm dialogs, audit):
   - [x] earlier in the match admin menu: force pause/unpause, end with a winner (forfeit), cancel, restart,
     add/remove player, backup restore, change server, MatchZy config preview, send panel address

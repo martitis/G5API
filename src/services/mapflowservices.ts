@@ -112,7 +112,8 @@ class MapFlowService {
           team2_score: 0
         };
         insUpdStatement = await db.buildUpdateStatement(insUpdStatement);
-        await db.query("INSERT INTO map_stats SET ?", insUpdStatement);
+        // A going_live sent twice at once: the unique (match_id, map_number) key keeps one row.
+        await db.query("INSERT INTO map_stats SET ? ON DUPLICATE KEY UPDATE id = id", insUpdStatement);
       }
       GlobalEmitter.emit("mapStatUpdate");
       return res.status(200).send({ message: "Success" });

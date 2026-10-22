@@ -411,6 +411,14 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         map_name: req.body[0].map_name,
         start_time: req.body[0].start_time,
       };
+      const existing: RowDataPacket[] = await db.query(
+        "SELECT id FROM map_stats WHERE match_id = ? AND map_number = ?",
+        [mapStatSet.match_id, mapStatSet.map_number]
+      );
+      if (existing.length) {
+        res.status(409).json({ message: "This map already has stats.", id: existing[0].id });
+        return;
+      }
       let sql: string = "INSERT INTO map_stats SET ?";
       let insertedStats: RowDataPacket[] = await db.query(sql, [mapStatSet]);
       GlobalEmitter.emit("mapStatUpdate");

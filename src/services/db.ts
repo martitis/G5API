@@ -23,9 +23,10 @@ const connPool = createPool(dbCfg);
 // 1024 bytes by default (big teams came back as invalid JSON).
 connPool.on("connection", (conn) => {
   // NOW() / CURRENT_TIMESTAMP defaults in UTC too, matching the times the code writes.
-  void Promise.resolve(conn.query("SET SESSION group_concat_max_len = 1048576, time_zone = '+00:00'")).catch(
-    (err: unknown) => console.error("Could not set up a database connection:", err)
-  );
+  // The pool's "connection" event hands out the callback connection, not the promise wrapper.
+  conn.query("SET SESSION group_concat_max_len = 1048576, time_zone = '+00:00'", (err: unknown) => {
+    if (err) console.error("Could not set up a database connection:", err);
+  });
 });
 
 class Database {
@@ -38,7 +39,7 @@ class Database {
       const result: [RowDataPacket[], FieldPacket[]] = await connPool.query<RowDataPacket[]>(sql, args);
       return result[0];
     } catch (error) {
-      console.error("SQL ERROR SQL ERROR SQL ERROR SQL ERROR SQL ERROR\n" + error);
+      console.error("SQL ERROR SQL ERROR SQL ERROR SQL ERROR SQL ERROR\n" + String(error));
       throw error;
     }
   }
@@ -61,7 +62,7 @@ class Database {
       await connPool.query(updateAdmins, [listOfAdmins]);
       await connPool.query(updateSuperAdmins, [listofSuperAdmins]);
     } catch (err) {
-      console.error("Failed to import users. " + err);
+      console.error("Failed to import users. " + String(err));
     }
   }
 }

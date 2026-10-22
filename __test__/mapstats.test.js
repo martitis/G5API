@@ -33,7 +33,7 @@ describe("Test the mapstats routes", () => {
   it('Should create stats of a map based on the third match.', () => {
     let teamData = [{
       match_id: 3,
-      map_number: 1,
+      map_number: 2,
       map_name: 'de_dust2',
       start_time: new Date().toISOString().slice(0, 19).replace("T", " ")
     }];
@@ -46,6 +46,13 @@ describe("Test the mapstats routes", () => {
         expect(result.body.message).toMatch(/successfully/);
       })
       .expect(200);
+  });
+  it('Should refuse a second stats row for the same map.', () => {
+    return request
+      .post('/mapstats')
+      .set("Content-Type", "application/json")
+      .send([{ match_id: 3, map_number: 1, map_name: 'de_anubis' }])
+      .expect(409);
   });
   it('Should update stats of a map based on the third match.', () => {
     let teamData = [{
