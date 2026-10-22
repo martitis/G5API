@@ -82,6 +82,8 @@ Docs: https://shobhit-pathak.github.io/MatchZy/ (commands, configuration, match 
   `css_forcepause`/`css_forceunpause` (`sm_pause`/`sm_unpause` are aliases), `css_endmatch [team1|team2]`,
   `css_restore <round>`, `matchzy_listbackups`, `matchzy_loadbackup <file>`, `matchzy_loadbackup_url`.
   **`get5_addcoach` does not exist.** `listbackups` output contains `\r\n` and noise lines, so parse it strictly.
+  `matchzy_loadbackup` reads its argument raw (`ArgString`): send the file name **unquoted**, or the quotes end up
+  in the path (`matchzy_loadbackup_url` parses its arguments normally, so quoting is fine there).
 
 ## Conventions (must follow)
 - SQL uses `?` placeholders only, through `db.query`.
