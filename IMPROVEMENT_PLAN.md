@@ -1,14 +1,22 @@
 # Improvement plan: G5API + G5V (CS2 / MatchZy panel)
 
-This file is shared by both repos (the frontend is `../G5V`). Tick items (`- [x]`) as they land and note the PR.
+This file is shared by both repos. The frontend repo is `../G5V`; the new Vue 3 panel is developed in the worktree
+`../G5V-next` (same repo, branch `phase5-match-list`). Tick items (`- [x]`) as they land and note the PR.
 The line numbers are from the 2026-10-20 analysis and will drift, so search for the code if they no longer match.
+Last reviewed against the code: 2026-10-22.
 
 **Decisions:**
 - phased Vue 3 migration
 - diverge freely from upstream
 - deploy on bare Node + pm2 behind nginx/Caddy
 - PUG queue is opt-in per match at creation (no global queue)
-- each phase is its own branch and PR per repo
+- each phase is its own branch and PR per repo (see "Branches and merging" below: Phases 3-5 are not pushed yet)
+- only admins (admin or super admin) create matches, tournaments and PUG queues (API returns 403 otherwise)
+- no "private match" option: matches are created by admins, so the switch was removed from create match
+- roles: `admins` / `super_admins.steam_ids` grant their role at every Steam login; roles a super admin sets in the
+  panel survive logins (`user.roles_from_config`)
+- local dev runs only the API (3301) and the new panel (5173, Vite proxies `/api`); the old Vue 2 panel is retired
+  and not started. `config/development.json` points `apiURL`/`clientHome` at the panel on the LAN IP
 
 ## Step 0: Context files
 - [x] `G5API/CLAUDE.md`, `G5V/CLAUDE.md`, this checklist
@@ -16,8 +24,8 @@ The line numbers are from the 2026-10-20 analysis and will drift, so search for 
 ## Phase 0: Build and tooling (branch `phase0-build-tooling` in both repos)
 - [x] `yarn build` passes. Fixed the merge's TS errors (Challonge JSON typed in `teams.ts`; `req.user!` in `matches.ts` mymatches). Removed the bogus `tsc` npm package, which shadowed TypeScript's `tsc` binary so `yarn build` compiled nothing
 - [x] The dev migration's duplicate `bomb_time_remaining` is fixed (test was already correct). **Not** collapsing the 3 migration folders: db-migrate stores the scope in applied migration names, so live DBs would re-run everything
-- [x] ESLint 10 + typescript-eslint (type-aware) + Prettier. Existing violations are warnings with a `--max-warnings` cap (1189). No mass reformat
-- [x] CI `ci.yml` in both repos (G5API: build + lint + MySQL integration tests; G5V: lint cap 34 + build). GHCR image workflows are now manual-only (they pushed to your own GHCR on every push, not upstream's). The G5API test job now runs every suite and posts failing tests as public annotations; all suites pass as of Phase 1 (they had been failing unnoticed because the old teardown hid failures)
+- [x] ESLint 10 + typescript-eslint (type-aware) + Prettier. Existing violations are warnings with a `--max-warnings` cap (1189 then; 616 as of Phase 5.4, lowered whenever warnings are fixed). No mass reformat
+- [x] CI `ci.yml` in both repos (G5API: build + lint + MySQL integration tests; old G5V: lint cap 34 + build; the new panel's CI runs lint with 0 warnings, Prettier check, i18n check, vue-tsc + build). GHCR image workflows are now manual-only (they pushed to your own GHCR on every push, not upstream's). The G5API test job now runs every suite and posts failing tests as public annotations; all suites pass as of Phase 1 (they had been failing unnoticed because the old teardown hid failures)
 - [x] `Utils.apiUrl()` used for every URL built from `server.apiURL`
 - [x] Cross-platform scripts (`cross-env`, `scripts/test-admin.mjs`). The jest teardown no longer does `process.exit(0)`, which had hidden failing tests; `--forceExit` is used instead
 - [x] Removed `package-lock.json` (it was out of sync, `npm ci` failed on master, and nothing used it); `yarn.lock` is the only lockfile
@@ -36,7 +44,7 @@ The line numbers are from the 2026-10-20 analysis and will drift, so search for 
   - fixed the `hashSync(undefined)` crash
 - [x] Local register: no admin rights; new `user.steam_verified` column (migration `20261020120000`). Steam login verifies the account and wipes unverified local credentials; `setupAdmins` only promotes verified accounts
 - [x] RCON: `safeRconArg` / SteamID64 checks in serverrcon (`RconArgumentError` becomes 412 in routes); `getSteamPID` only returns valid SteamID64s or `""`; team routes reject invalid member IDs before writing
-- [x] **Backup restore bug** (user-reported). MatchZy's `listbackups` prints `<file> <timestamp> <teams> <map> <score>` (or a full path) per line, and the panel sent the whole line, `\r` included. `getBackups()` now parses this into `{file, map_number, round, info}`; restore checks the name against the server's list and quotes it. G5V shows "Map N, round R · details"
+- [x] **Backup restore bug** (user-reported). MatchZy's `listbackups` prints `<file> <timestamp> <teams> <map> <score>` (or a full path) per line, and the panel sent the whole line, `\r` included. `getBackups()` now parses this into `{file, map_number, round, info}`; restore checks the name against the server's list. G5V shows "Map N, round R · details". **Correction (Phase 5):** the name must be sent **unquoted**: `matchzy_loadbackup` reads its argument raw, so quotes became part of the path (`backupLoadCommand()`, unit tested). Restore now also returns 409 with MatchZy's reply when MatchZy restored nothing
 - [x] Cvars: `Utils.validateCvars` (MatchZy name/value rules; blocks rcon_password, sv_rcon_*, everyone_is_admin, any `*_url`/`*_header_*`), applied to match and season create/update; removed the `\"` escaping. *Not done:* a per-server whitelist for public servers
 - [x] `checkApiKey` uses `safeCompare` (timing-safe; a missing match or key never passes)
 - [x] Uploads: numeric ID headers and basename-only demo names; awaited writes; raw body only on `/v2/demo` (2gb) and `/v2/backup` (20mb); `/backups/:match_id/*` requires the match key, which `get5_loadbackup_url` now sends as a header
@@ -48,7 +56,11 @@ The line numbers are from the 2026-10-20 analysis and will drift, so search for 
 - [x] Fixed the swapped params in remote-backup server change (`UPDATE match SET server_id…`); the new server is marked in_use
 - [x] `/mymatches` filter is just `user_id = ?`; both match lists use subqueries for the current map score (the JOIN + GROUP BY returned 500 on MySQL 8)
 - [x] `__test__/unit.test.js` (no DB): parser, sanitizers, cvars, auth/404/upload checks. Run with `yarn test:unit`
-- [ ] **Open:** enforce `private_match` / `public_team` on reads and SSE streams; per-server cvar whitelist; many routes still return `err.toString()` in their own catch blocks (cleanup in Phase 2)
+- [x] ~~Enforce `private_match` on reads~~: dropped (decision: no private matches). The match list summary still hides
+  `private_match` rows from outsiders; the match page and old list routes don't check it
+- [ ] `public_team` on team reads; per-server cvar whitelist for public servers
+- [ ] 66 route handlers still answer `err.toString()` in their own catch blocks (leaks SQL/RCON details); switch them
+  to `next(err)` (the global handler sends a generic message)
 
 ## Phase 2: Backend bugs + MatchZy-native integration (branch `phase2-matchzy` in both repos)
 Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySystem.cs, EventHandlers.cs, ConsoleCommands.cs).
@@ -66,11 +78,11 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] `css_endmatch [team1|team2]` (forfeits name the winner), `css_forcepause/forceunpause`, `matchzy_addplayer/removeplayer/listbackups/loadbackup(_url)`
 - [x] Add coach = add player to the team (no `get5_addcoach` in MatchZy)
 - [x] Safe JSON parsing, connection closed on errors, `compare-versions` removed
-- [ ] Verify the `css_*` admin commands from the RCON console on the deployed server (they accept a null player in MatchZy's source)
+- [ ] Verify the `css_*` admin commands from the RCON console on the deployed server (they accept a null player in MatchZy's source). Needed before 5.5
 ### Backup list/restore bug: done in Phase 1
 ### Event webhook (`v2/api.ts`, `services/mapflowservices.ts`, `services/seriesflowservices.ts`)
 - [x] Handlers awaited, every handler catches and always responds; `going_live` no longer hangs
-- [x] `series_start`, `player_disconnect` acknowledged; failed `demo_upload_ended` logged
+- [x] `series_start`, `player_disconnect` acknowledged; failed `demo_upload_ended` stored as `map_stats.demo_status = 'failed'` (shown on the match page)
 - [x] Null attacker/assist/weapon; players outside the rosters; team lookups scoped to the match; names/weapons fit their columns
 - [x] Team2 pause string; `playerStatsExtraUpdate` emitted; `insertId` fix; draw isn't credited to team2; Challonge errors don't fail events
 - [x] `backup_loaded` also drops bomb events; `round_restored` reset after cleanup
@@ -100,7 +112,9 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 ### Cleanup / SSE
 - [x] `routes/legacy/api.ts` deleted; `yarn build` cleans `dist/`
 - [x] SSE: 25s heartbeat on every `/stream`, emitter listener cap removed
-- [ ] Per-match emitter channels (each stream currently re-queries on every match's event; performance only)
+- [ ] Per-match emitter channels (each stream currently re-queries on every match's event; performance only). There
+  are more streams now (match live stream, match list summary stream, PUG queue stream), so this matters more
+- [ ] `tournamentUpdate` is emitted but nothing listens yet (see 5.3 live bracket)
 - [ ] Rename Get5 wording in Swagger docs/types to MatchZy
 
 ## Phase 3: G5V stabilization (Vue 2) (G5V branch `phase3-stabilize`)
@@ -114,7 +128,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] Phase 1 API changes followed (POST actions, logout, masked RCON)
 - [x] Also fixed: TeamTable (nickname wiped on typing, silent save failures, `/teams/undefined`), Server/Login/Password dialogs, Seasons/Servers delete rows, User page, MatchCard ordering, leaderboard ADR, stray `/create` route
 - [x] Lint warnings 34 → 2
-- [ ] Not verified in a browser against a running API (no local MySQL); click through the main pages after deploying
+- [x] ~~Verify in a browser~~: superseded. The Vue 2 panel is retired in favour of the Phase 4 panel
 
 ## Phase 4: G5V → Vue 3 + Vuetify 4 + Vite + Pinia + TS (worktree `../G5V-next`, branch `phase4-vue3`)
 - [x] Scaffold: Vite 8, Vue 3.5, Vuetify 4, vue-router 5, Pinia 4, vue-i18n 11 (`fallbackLocale: 'en'`, `jp`→`ja`),
@@ -127,11 +141,12 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] Match page: one combined SSE stream (`GET /matches/:id/live/stream`) instead of five; admin menu with config
   preview and server console output
 - [x] `/metrics` counts endpoint
-- [ ] Server-side pagination → done with the Phase 5 match list redesign (paged summary endpoint)
+- [x] Server-side pagination: done in 5.0 (paged `GET /matches/summary`)
 - [x] Branding (panel name from config.json), MatchZy help links, self-hosted fonts/icons, i18n check in CI
 - [x] nginx/Caddy config: cache headers, compression, security headers, SPA fallback, `/api` proxy with SSE settings
 - [x] Backend fixes found while porting: `group_concat_max_len` (big teams' member JSON was cut), password change
-  always needs the old password, map list validation, Challonge season import, team owner name, lint cap 681
+  always needs the old password (`force_reset` used to skip the check), map list validation, Challonge season import
+  (shared `importParticipants()`), team owner name, lint cap 681. These commits are on `phase2-matchzy` (not pushed)
 - [ ] Merge `phase4-vue3` into G5V (after a manual check of every page against a running API)
 
 ## Phase 5: Features
@@ -164,26 +179,60 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   to 7v7) / captains (ABBA picks); PUG teams (`team.is_pug`, hidden) and the match created via `createMatchAs()`;
   failed + retry; SSE queue page; open queues above the match list
   - [ ] a two-player end-to-end test (needs a second Steam-verified test account)
-- [ ] **5.5 Admin match control center** (RCON, sanitized, confirm dialogs, audit):
+- [x] **Fixes found during Phase 5** (not features, listed so they aren't lost):
+  - `Utils.adminCheck` / `superAdminCheck` treated `false`, `"0"` or a missing flag as admin (unit tested)
+  - `PUT /users` refuses admin rights for unverified local accounts (tested with a registered account)
+  - backup restore sent the file name in quotes; restore reported success when MatchZy restored nothing
+  - `POST /matches/:id/callbacks` + "Send panel address to server": re-sends event/backup/demo URLs to a match
+    loaded before `server.apiURL` changed (MatchZy keeps the URLs from the config)
+  - CT/T sides were never stored (MatchZy's `winner.side` is "3"/"2", round_end teams have no side)
+  - copy buttons work on plain-HTTP LAN addresses (clipboard fallback); match title templates (`{MAPNUMBER}`) hidden
+  - test-suite backups were committed; `public/backups` and `public/demos` are now gitignored
+  - the `POST /matches` handler is `createMatchHandler` / `createMatchAs()` (used by PUG queues)
+- [ ] **5.5 Admin match control center** (RCON, sanitized, confirm dialogs, audit). Already in the match admin menu:
+  force pause/unpause, end with a winner (forfeit), cancel, restart, add/remove player, backup restore, change
+  server, a one-off RCON command with output, MatchZy config preview, send panel address. Still to do:
   - force start/restart, skip veto, knife toggle, playout, readyrequired, addreadytime, force pause/unpause, endmatch with winner, change map
-  - restore by round from `match_round` (`css_restore N`)
+  - restore by round from `match_round` (`css_restore N`). **Blocked** until the server runs a MatchZy build with
+    PR #422 (CS2 1.41.9.1 rejects MatchZy's absolute round-backup paths, so no round files are written; see Phase 6)
   - connected players: kick, move team, late sub, whitelist, rename team
   - `css_asay` broadcast templates; curated live cvars
   - match presets (Official/Scrim/PUG) and user templates
   - scheduled auto-load + no-show warning
-  - RCON console, practice-mode launcher, server health card
+  - RCON console with history (today: one command at a time), practice-mode launcher, server health card
 - [ ] **5.6 Fun/community (optional):** match awards, highlights feed, player profiles 2.0 + achievements, Elo/OpenSkill, Discord webhooks, pick'em, OBS overlay, live widget, hall of fame, fun presets
-- [ ] **5.7 Small:** connect links with server password, GOTV link, map pool per season/tournament
+- [ ] **5.7 Small:**
+  - [x] GOTV link (match page and match list rows)
+  - [x] map pool per season (season defaults) and per tournament (tournament settings)
+  - [x] copy connect command (match page and match list rows)
+  - [ ] connect links with the server password (servers don't store a join password yet)
 
 ## Phase 6: Ops
-- [ ] Node 22 LTS; pm2 ecosystem with env; nginx/Caddy examples (SSE settings) in `deploy/`
+- [ ] Node 22 LTS; pm2 ecosystem with env. nginx/Caddy examples with SSE settings exist in the panel repo
+  (`default.conf`, `Caddyfile`, Phase 4); add an API-side deployment note (not in `docs/`, which `yarn docclean` wipes)
+- [ ] **Game server requirements** to document: MatchZy with PR #422 (merged into MatchZy `dev` on 2026-10-18) for
+  round backups on CS2 1.41.9.1; possibly the `-allow_round_backup_files` launch flag; `apiURL` reachable from the
+  game server (matches keep the URLs they were loaded with)
 - [ ] pino logging; `/health`
 - [ ] Rotate the Steam API key leaked in upstream history (`1916f7b`, `4ff0e1e`) if still used
 - [ ] MockStrategy only with NODE_ENV=test **and** an explicit flag
+- [ ] `docker-compose.yml` still pulls upstream's image (from Phase 0)
+
+## Branches and merging
+State on 2026-10-22: nothing after Phase 2 is pushed or merged.
+- G5API: `phase2-matchzy` is 6 commits ahead of origin (the Phase 4 backend fixes); `phase5-match-list` is based on
+  it and never pushed. Local `master` is 4 commits behind origin.
+- G5V: `phase4-vue3` and `phase5-match-list` (worktree `../G5V-next`) were never pushed. The `../G5V` checkout is on
+  `pr/tech62/171` (an upstream PR branch), not on a phase branch. Local `master` is 4 commits behind origin.
+- [ ] Plan: pull `master` in both repos; push `phase2-matchzy` (G5API) and open/refresh its PR; then push
+  `phase5-match-list` in both repos as one PR each (it contains the Phase 3/4/5 work), or split per phase if reviews
+  need it. The G5V PR replaces the Vue 2 code with the Vite panel
+- [ ] Before merging the panel: click through every page against a running API (Phase 4 open item), PUG queue with two
+  Steam accounts, a tournament with real matches
 
 ## Verification checklist
 - Unit: config builder snapshots, sanitizers, each webhook event (null attacker, non-roster player), auth matrix per mutating route
 - Integration: supertest + MySQL; add v2 webhook, demo/backup uploads, leaderboard
-- E2E with CS2 + MatchZy: BO3 with spectators and a coach → load, veto, live score, pause, demo upload, series_end frees the server; forfeit/cancel/restore (clean backup names); live list updates; admin commands + audit; PUG queue with 10 accounts
-- Frontend: build, lint and vue-tsc pass; Playwright smoke tests; phone width
+- E2E with CS2 + MatchZy: BO3 with spectators and a coach → load, veto, live score, pause, demo upload, series_end frees the server; forfeit/cancel/restore (clean backup names); live list updates; admin commands + audit; PUG queue with 10 accounts. Done manually so far (2026-10-22, match 3): load, live rounds and kills, pause, backup list; restore blocked by the MatchZy/CS2 round-file issue
+- Frontend: build, lint and vue-tsc pass (done in CI); Playwright smoke tests (not started); phone width
 - Security: anonymous DELETEs → 401/403; RCON injection rejected; `/v2` with `Authorization: undefined` → 401, process survives
