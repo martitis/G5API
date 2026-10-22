@@ -331,6 +331,9 @@ describe("Test the matches routes", () => {
         .send([{ userid: "2; quit" }]).expect(412);
       await request.post(`/matches/${id}/server/kick`).set("Content-Type", "application/json")
         .send([{ userid: 2 }]).expect(200);
+      const ready = await request.get(`/matches/${id}/ready`).expect(200);
+      expect(ready.body.ready).toBeNull();
+      await request.get("/matches/99999/ready").expect(404);
     });
   });
 

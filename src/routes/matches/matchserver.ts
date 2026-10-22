@@ -1536,6 +1536,64 @@ router.get("/:match_id/server/status", Utils.ensureAuthenticated, async (req, re
   }
 });
 
+const READY_CACHE_MS = 5000;
+const readyCache = new Map<string, { at: number; body: unknown }>();
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/ready:
+ *   get:
+ *     description: >
+ *       Whether each team is ready and how many of its players are connected (MatchZy's get5_status, which has no
+ *       per-player ready state). Public; null while the match isn't running on a server. Cached for 5 seconds.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ ready: { gamestate, team1: { ready, connected_clients }, team2: {...} } | null }"
+ */
+router.get("/:match_id/ready", async (req, res, next) => {
+  try {
+    const rows: RowDataPacket[] = await db.query(
+      "SELECT id, server_id, end_time, cancelled FROM `match` WHERE id = ?",
+      [req.params.match_id]
+    );
+    if (!rows.length) {
+      res.status(404).json({ message: "Match not found." });
+      return;
+    }
+    const match = rows[0];
+    if (!match.server_id || match.end_time || match.cancelled || process.env.NODE_ENV === "test") {
+      res.json({ ready: null });
+      return;
+    }
+    const key = String(match.id);
+    const cached = readyCache.get(key);
+    if (cached && Date.now() - cached.at < READY_CACHE_MS) {
+      res.json(cached.body);
+      return;
+    }
+    let ready: unknown = null;
+    try {
+      const status = await (await getGameServer(key)).getMatchStatus();
+      if (status && String(status.matchid) === key) {
+        const team = (value: any) =>
+          value ? { ready: Boolean(value.ready), connected_clients: Number(value.connected_clients) || 0 } : null;
+        ready = { gamestate: String(status.gamestate ?? ""), team1: team(status.team1), team2: team(status.team2) };
+      }
+    } catch {
+      // Unreachable server: shown as unknown.
+    }
+    const body = { ready };
+    for (const [id, entry] of readyCache) if (Date.now() - entry.at > 60000) readyCache.delete(id);
+    readyCache.set(key, { at: Date.now(), body });
+    res.json(body);
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * @swagger
  *
