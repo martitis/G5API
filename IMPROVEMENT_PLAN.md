@@ -153,7 +153,12 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   accounts can't be admins; panel-set roles survive Steam login via `user.roles_from_config`), all servers, audit log
   (`audited()` middleware on every match action and create/update/delete route, `GET /admin/audit`). Config preview
   is in the match admin menu.
-- [ ] **5.3 Tournament tooling:** tournament/stage/bracket tables; SE/DE/RR/Swiss; auto-advance on series_end; auto server assign; bracket UI; Challonge optional
+- [x] **5.3 Tournament tooling:** single/double elimination (byes, lower bracket, grand final), round robin, Swiss
+  (pairing by record, no rematches, byes) in `services/bracket.ts` (unit tested); tables tournament,
+  tournament_team, tournament_match; slot matches via `POST /matches` + `tournament_match_id`; brackets advance on
+  series_end/forfeit/cancel; bracket view, standings, "Start ready matches" on free servers
+  - [ ] Challonge as an optional sync target for tournaments (today Challonge sync is per season)
+  - [ ] live bracket updates over SSE (the page polls every 15 s)
 - [ ] **5.4 PUG queue (opt-in at creation):**
   - "Team mode: Existing teams | PUG queue"
   - `queue_status` + `match_queue_player`
