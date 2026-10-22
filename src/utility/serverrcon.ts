@@ -92,6 +92,55 @@ export function parseBackupList(output: string): BackupEntry[] {
   return [...backups.values()].sort((a, b) => b.map_number - a.map_number || b.round - a.round);
 }
 
+export interface StatusPlayer {
+  /** The id `kickid` takes. */
+  userid: number;
+  name: string;
+  /** Null for bots. */
+  ping: number | null;
+  /** active, spawning, connecting, ... */
+  state: string;
+  bot: boolean;
+}
+
+const PLAYER_STATES = /^(active|spawning|spawned|connecting|connected|challenging|loading|new)$/i;
+
+/**
+ * The players section of CS2's `status` ("id time ping loss state rate adr 'name'" rows between
+ * "---------players--------" and "#end"). CS2 doesn't print Steam IDs there. Slot 65535 (an unfilled or GOTV
+ * slot) and rows without a name are skipped.
+ */
+export function parseStatusPlayers(output: string): StatusPlayer[] {
+  const players: StatusPlayer[] = [];
+  let inPlayers = false;
+  for (const rawLine of output.split(/\r?\n/)) {
+    // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+    const line = rawLine.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    if (/^-+\s*players\s*-+$/i.test(line)) {
+      inPlayers = true;
+      continue;
+    }
+    if (!inPlayers) continue;
+    if (line.startsWith("#end")) break;
+    const row = /^(\d+)\s+(.*?)\s*'(.*)'$/.exec(line);
+    if (!row) continue;
+    const userid = parseInt(row[1]);
+    const name = row[3];
+    if (userid === 65535 || !name) continue;
+    const fields = row[2].split(/\s+/);
+    const bot = fields.includes("BOT");
+    const ping = bot ? null : parseInt(fields[1] ?? "");
+    players.push({
+      userid,
+      name,
+      ping: ping === null || Number.isNaN(ping) ? null : ping,
+      state: fields.find((field) => PLAYER_STATES.test(field))?.toLowerCase() ?? "",
+      bot
+    });
+  }
+  return players;
+}
+
 /**
  * Creates a new server object to run various tasks.
  * @class

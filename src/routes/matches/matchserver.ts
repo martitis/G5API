@@ -11,7 +11,7 @@ import {db} from "../../services/db.js";
 
 import Utils from "../../utility/utils.js";
 
-import GameServer, { BackupEntry, RconArgumentError, restoreFailed } from "../../utility/serverrcon.js";
+import GameServer, { BackupEntry, parseStatusPlayers, RconArgumentError, restoreFailed } from "../../utility/serverrcon.js";
 import { callbackCvars } from "../../services/matchconfig.js";
 import config from "config";
 import { audited, firstBody } from "../../utility/audit.js";
@@ -1535,5 +1535,84 @@ router.get("/:match_id/server/status", Utils.ensureAuthenticated, async (req, re
     next(err);
   }
 });
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/players:
+ *   get:
+ *     description: >
+ *       Players connected to the match's server, from CS2's `status` (userid, name, ping, state, bot; CS2 doesn't
+ *       print Steam IDs there). Owner or admin.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ reachable, players }"
+ */
+router.get("/:match_id/server/players", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+    if (errMessage != null) {
+      res.status(errMessage.status).json({ message: errMessage.message });
+      return;
+    }
+    if (process.env.NODE_ENV === "test") {
+      res.json({ reachable: false, players: [] });
+      return;
+    }
+    const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+    try {
+      const output: string = await serverUpdate.sendRconCommand("status");
+      res.json({ reachable: true, players: parseStatusPlayers(output) });
+    } catch {
+      res.json({ reachable: false, players: [] });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/kick:
+ *   post:
+ *     description: Kicks a connected player by the userid from /server/players (`kickid`). Owner or admin.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ message, response }"
+ *       412:
+ *         description: Invalid userid.
+ */
+router.post(
+  "/:match_id/server/kick",
+  Utils.ensureAuthenticated,
+  audited("match.kick", {
+    target: (req) => ({ type: "match", id: Number(req.params.match_id) || null }),
+    detail: (req) => `${String(firstBody(req).userid ?? "")} ${String(firstBody(req).name ?? "")}`.trim()
+  }),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      const userid = Number(firstBody(req).userid);
+      if (!Number.isInteger(userid) || userid < 0 || userid >= 65535) {
+        res.status(412).json({ message: "Invalid player id." });
+        return;
+      }
+      const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+      const response: string = await serverUpdate.sendRconCommand(`kickid ${userid}`);
+      res.json({ message: "Player kicked.", response });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export default router;

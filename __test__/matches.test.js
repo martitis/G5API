@@ -320,6 +320,18 @@ describe("Test the matches routes", () => {
       // The matches suite runs as an admin (not super admin), so the audit log itself is refused here.
       expect([200, 403]).toContain(audit.status);
     });
+    it("Should list connected players and refuse a bad kick id.", async () => {
+      const created = await request.post("/matches/").set("Content-Type", "application/json")
+        .send([{ server_id: 2, team1_id: 4, team2_id: 3, max_maps: 1, veto_mappool: "de_nuke", ignore_server: true }])
+        .expect(200);
+      const id = created.body.id;
+      const players = await request.get(`/matches/${id}/server/players`).expect(200);
+      expect(players.body.players).toEqual([]);
+      await request.post(`/matches/${id}/server/kick`).set("Content-Type", "application/json")
+        .send([{ userid: "2; quit" }]).expect(412);
+      await request.post(`/matches/${id}/server/kick`).set("Content-Type", "application/json")
+        .send([{ userid: 2 }]).expect(200);
+    });
   });
 
   describe("scheduled matches", () => {

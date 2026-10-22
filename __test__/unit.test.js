@@ -1,7 +1,7 @@
 // Unit tests that need no database or game server.
 import { agent } from "supertest";
 import app from "../app.js";
-import { backupLoadCommand, parseBackupList, restoreFailed, safeRconArg, RconArgumentError } from "../src/utility/serverrcon.js";
+import { backupLoadCommand, parseBackupList, parseStatusPlayers, restoreFailed, safeRconArg, RconArgumentError } from "../src/utility/serverrcon.js";
 import Utils from "../src/utility/utils.js";
 import { buildMatchConfig, callbackCvars, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
 import { buildSummary } from "../src/services/matchsummary.js";
@@ -618,5 +618,33 @@ describe("controlCommand (admin match control)", () => {
     ["cvar", { cvar: "mp_freezetime", value: 61 }]
   ])("refuses %s %p", (action, args) => {
     expect(() => controlCommand(action, args)).toThrow(RconArgumentError);
+  });
+});
+
+describe("parseStatusPlayers", () => {
+  // Shaped like CS2's `status` reply (CRLF, a GOTV/unfilled slot, a bot, a connecting player).
+  const output =
+    "hostname: Test Server\r\n" +
+    "---------spawngroups----\r\n" +
+    "loaded spawngroup(  1)  : SV:  [1: de_mirage | main lump | mapload]\r\n" +
+    "---------players--------\r\n" +
+    "  id     time ping loss      state   rate adr name\r\n" +
+    "65535 [NoChan]    0    0 challenging      0unknown ''\r\n" +
+    "    2    05:21   25    0     active 786432 192.168.1.5:27005 'Player One'\r\n" +
+    "    3      BOT    0    0     active      0 'Bot Name'\r\n" +
+    "    4    00:03   61    3 connecting 786432 10.0.0.2:27005 'It''s me'\r\n" +
+    "#end\r\n" +
+    "    9    01:00   10    0     active 786432 1.2.3.4:27005 'After end'\r\n";
+
+  it("lists connected players with id, name, ping and state", () => {
+    expect(parseStatusPlayers(output)).toEqual([
+      { userid: 2, name: "Player One", ping: 25, state: "active", bot: false },
+      { userid: 3, name: "Bot Name", ping: null, state: "active", bot: true },
+      { userid: 4, name: "It''s me", ping: 61, state: "connecting", bot: false }
+    ]);
+  });
+
+  it("returns nothing without a players section", () => {
+    expect(parseStatusPlayers("Unknown command\r\n")).toEqual([]);
   });
 });
