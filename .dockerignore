@@ -1,0 +1,13 @@
+# Never bake local secrets or build output into the image (config/*.json hold the DB password, dbKey, Steam key).
+config/*.json
+!config/*.json.template
+node_modules
+dist
+logs
+public/demos
+public/backups
+coverage
+docs
+.git
+.github
+*.log

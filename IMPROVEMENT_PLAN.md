@@ -30,7 +30,7 @@ Last reviewed against the code: 2026-10-22.
 - [x] Cross-platform scripts (`cross-env`, `scripts/test-admin.mjs`). The jest teardown no longer does `process.exit(0)`, which had hidden failing tests; `--forceExit` is used instead
 - [x] Removed `package-lock.json` (it was out of sync, `npm ci` failed on master, and nothing used it); `yarn.lock` is the only lockfile
 - [x] G5V: `.yarnrc` ignores the Node ≤19 engines check from Vue CLI's node-ipc (until Phase 4)
-- [ ] Follow-up: `docker-compose.yml` pulls `ghcr.io/phlexplexico/g5api:latest` (upstream). Point it at your image or drop it (Phase 6)
+- [x] Follow-up: `docker-compose.yml` no longer pulls upstream's image (Phase 6)
 
 ## Phase 1: Critical security (branch `phase1-security` in both repos)
 - [x] `ensureAuthenticated` + owner checks on the unauthenticated deletes (seasons, playerstats, playerstatsextra). Fixed `DELETE FROM player_stat_extras; WHERE …`. Every other `req.user && …` check sits behind `ensureAuthenticated`, so those are harmless
@@ -244,18 +244,20 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
     after the match
 
 ## Phase 6: Ops
-- [ ] Node 22 LTS; pm2 ecosystem with env. nginx/Caddy examples with SSE settings exist in the panel repo
-  (`default.conf`, `Caddyfile`, Phase 4); add an API-side deployment note (not in `docs/`, which `yarn docclean` wipes)
-- [ ] **Game server requirements** to document: MatchZy with PR #422 (merged into MatchZy `dev` on 2026-10-18) for
-  round backups on CS2 1.41.9.1; possibly the `-allow_round_backup_files` launch flag; `apiURL` reachable from the
-  game server (matches keep the URLs they were loaded with)
+- [x] Node 22 LTS (`engines` >=22.12, `.nvmrc`, Dockerfile `node:22-alpine`); pm2 `prodrun.json` with
+  `LOG_LEVEL` and a memory restart; [DEPLOY.md](DEPLOY.md) (install, config keys, updates, proxy settings for SSE and
+  demo uploads, `/health`, logs, Docker, security checklist)
+- [x] **Game server requirements** documented in DEPLOY.md (MatchZy with PR #422, `-allow_round_backup_files`,
+  `apiURL` reachable, "Send panel address to server", join password)
 - [x] `/health` (DB check, 503 when down, no session); pino logger (`utility/logger.ts`, redacts auth headers and
   cookies) for HTTP logs in production, the error handler and unhandled rejections; morgan once in development
   (it ran twice); no HTTP log in tests
 - [ ] Move the remaining `console.*` calls (95 in `src/`) to the logger, file by file
-- [ ] Rotate the Steam API key leaked in upstream history (`1916f7b`, `4ff0e1e`) if still used
+- [ ] Rotate the Steam API key leaked in upstream history (`1916f7b`, `4ff0e1e`) if still used. **Needs you**: only
+  the key's owner can do it at https://steamcommunity.com/dev/apikey (listed in DEPLOY.md's security checklist)
 - [x] MockStrategy only with NODE_ENV=test **and** `G5API_MOCK_AUTH=1` (set in the jest configs)
-- [ ] `docker-compose.yml` still pulls upstream's image (from Phase 0)
+- [x] `docker-compose.yml` builds this repo and uses your GHCR panel image; `.dockerignore` keeps `config/*.json`
+  secrets and `node_modules` out of the image
 
 ## Branches and merging
 State on 2026-10-22: nothing after Phase 2 is pushed or merged.

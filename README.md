@@ -1,20 +1,14 @@
-# G5API - A Tournament Management API Backend for Get5
-_**Status: Supported.**_
+# G5API: backend for a CS2 tournament panel (MatchZy)
 
-No more features will be actively developed, but supoprt will still be given if you need assistance in setting things up. Pull Requests are always welcome and will be reviewed!
+Express/TypeScript API that manages CS2 matches, teams, servers, seasons, tournaments and PUG queues, and drives the
+[MatchZy](https://shobhit-pathak.github.io/MatchZy/) plugin over RCON. It started as a fork of
+[PhlexPlexico/G5API](https://github.com/PhlexPlexico/G5API) and has since diverged; the panel is the matching G5V fork.
 
-With the recent developments of Counter-Strike Sharp, there are a few plugins which have graciously added support for G5API. Huge thanks to [MatchZy](https://shobhit-pathak.github.io/MatchZy/) and [PugSharp](https://github.com/Lan2Play/PugSharp) for adding support to this project.
+- Deploying: [DEPLOY.md](DEPLOY.md)
+- Roadmap and what has landed: [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md)
+- Working on the code: [CLAUDE.md](CLAUDE.md) (stack, commands, MatchZy facts, conventions)
 
-G5API is a replacement for the get5-webpanel. This is the backend only, as it will allow the plugin to interface with a database, Steam OAuth, Local Logins, and API Keys, as well as make various calls to functionality that is seen in the [get5-web](https://github.com/phlexplexico/get5-web).
-
-If you would like a supplemental front-end, please see [Get5Vue](https://github.com/phlexplexico/g5v) or use the [docker-compose](https://github.com/PhlexPlexico/G5API/blob/master/docker-compose.yml) located in the repo!
-
----
-
-Like The Project? Feel free to sponsor it! Click the Sponsor button on the repo to see all the possible ways of supporting this development!  
-![Sponsor me](https://phlexplexi.co/sponsor.png)
-
-If you've donated and would like to have your name listed as a sponsor, please message me on Twitter!
+The original upstream README follows.
 
 ---
 

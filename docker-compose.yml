@@ -37,8 +37,10 @@ services:
     environment:
       - CADDY_INGRESS_NETWORKS=get5
 
+  # Built from this repo (`docker compose build`), or pulled from your GHCR once the manual ghcr.yml workflow ran.
   g5api:
-    image: ghcr.io/phlexplexico/g5api:latest
+    build: .
+    image: ghcr.io/martitis/g5api:latest
     depends_on:
       - get5db
     container_name: G5API
@@ -73,8 +75,9 @@ services:
       - LOCALLOGINS=false
     restart: always
 
+  # The panel (G5V repo, its ghcr.yml workflow publishes this image).
   g5v:
-    image: ghcr.io/phlexplexico/g5v:latest
+    image: ghcr.io/martitis/g5v:latest
     depends_on:
       - g5api
     container_name: G5V-Front-End
