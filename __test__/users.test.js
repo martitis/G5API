@@ -74,6 +74,20 @@ describe("Test the user routes", () => {
         expect(me.roles_from_config).toBe(1);
       });
   });
+  it('Should save, replace, list and delete match templates.', async () => {
+    const body = { name: "Scrim BO1", settings: { maps_to_win: 1, map_pool: ["de_nuke"], cvars: { mp_overtime_enable: 0 } } };
+    const first = await request.post('/templates').set('Content-Type', 'application/json').send([body]).expect(200);
+    const again = await request.post('/templates').set('Content-Type', 'application/json')
+      .send([{ ...body, settings: { ...body.settings, maps_to_win: 3 } }]).expect(200);
+    expect(again.body.id).toBe(first.body.id);
+    const list = await request.get('/templates').expect(200);
+    expect(list.body.templates).toHaveLength(1);
+    expect(list.body.templates[0].settings).toMatchObject({ maps_to_win: 3, map_pool: ["de_nuke"], cvars: { mp_overtime_enable: "0" } });
+    await request.post('/templates').set('Content-Type', 'application/json')
+      .send([{ name: "Bad", settings: { cvars: { rcon_password: "x" } } }]).expect(412);
+    await request.delete(`/templates/${first.body.id}`).expect(200);
+    await request.delete(`/templates/${first.body.id}`).expect(404);
+  });
   it('Should search the audit log text.', async () => {
     const hit = await request.get('/admin/audit?q=user.create').expect(200);
     expect(hit.body.total).toBeGreaterThan(0);
