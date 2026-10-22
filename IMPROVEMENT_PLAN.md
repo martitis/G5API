@@ -202,17 +202,20 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   - copy buttons work on plain-HTTP LAN addresses (clipboard fallback); match title templates (`{MAPNUMBER}`) hidden
   - test-suite backups were committed; `public/backups` and `public/demos` are now gitignored
   - the `POST /matches` handler is `createMatchHandler` / `createMatchAs()` (used by PUG queues)
-- [ ] **5.5 Admin match control center** (RCON, sanitized, confirm dialogs, audit). Already in the match admin menu:
-  force pause/unpause, end with a winner (forfeit), cancel, restart, add/remove player, backup restore, change
-  server, a one-off RCON command with output, MatchZy config preview, send panel address. Still to do:
-  - force start/restart, skip veto, knife toggle, playout, readyrequired, addreadytime, force pause/unpause, endmatch with winner, change map
-  - restore by round from `match_round` (`css_restore N`). **Blocked** until the server runs a MatchZy build with
+- [ ] **5.5 Admin match control center** (RCON, sanitized, confirm dialogs, audit):
+  - [x] earlier in the match admin menu: force pause/unpause, end with a winner (forfeit), cancel, restart,
+    add/remove player, backup restore, change server, MatchZy config preview, send panel address
+  - [x] match control panel (`POST /matches/:id/control`, `utility/matchcontrol.ts`, unit tested, audited): force start,
+    skip veto, knife/playout/whitelist toggles, ready required, add ready time, change map, rename teams,
+    `css_asay` with templates, curated live cvars
+  - [x] server health card (`GET /matches/:id/server/status`: RCON reachable + get5_status); RCON console with history
+  - [ ] restore by round from `match_round` (`css_restore N`). **Blocked** until the server runs a MatchZy build with
     PR #422 (CS2 1.41.9.1 rejects MatchZy's absolute round-backup paths, so no round files are written; see Phase 6)
-  - connected players: kick, move team, late sub, whitelist, rename team
-  - `css_asay` broadcast templates; curated live cvars
-  - match presets (Official/Scrim/PUG) and user templates
-  - scheduled auto-load + no-show warning
-  - RCON console with history (today: one command at a time), practice-mode launcher, server health card
+  - [ ] connected players panel (kick, move team, late sub): CS2's `status` doesn't list Steam IDs, so this needs
+    another source (MatchZy player events or a plugin command); moving a player = `matchzy_removeplayer` + `addplayer`
+  - [ ] match presets (Official/Scrim/PUG) and user templates
+  - [ ] scheduled auto-load + no-show warning
+  - [ ] practice-mode launcher for a free server (`css_prac` / `css_exitprac`)
 - [ ] **5.6 Fun/community (optional):** match awards, highlights feed, player profiles 2.0 + achievements, Elo/OpenSkill, Discord webhooks, pick'em, OBS overlay, live widget, hall of fame, fun presets
 - [ ] **5.7 Small:**
   - [x] GOTV link (match page and match list rows)
