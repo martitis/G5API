@@ -16,6 +16,7 @@ import { callbackCvars } from "../../services/matchconfig.js";
 import config from "config";
 import { audited, firstBody } from "../../utility/audit.js";
 import { onMatchChanged } from "../../services/tournaments.js";
+import { controlCommand } from "../../utility/matchcontrol.js";
 
 /** After a successful forfeit, cancel or restart, the match's tournament bracket is updated. */
 const refreshTournamentAfter = (req: Request, res: Response, next: NextFunction) => {
@@ -1429,6 +1430,108 @@ router.post("/:match_id/callbacks", Utils.ensureAuthenticated, audited("match.up
       res.status(412).json({ message: err.message });
       return;
     }
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/control:
+ *   post:
+ *     description: >
+ *       Admin match control over RCON. Body - action (start, skip_veto, toggle_knife, toggle_playout,
+ *       toggle_whitelist, ready_required + count, add_ready_time + seconds, change_map + map, team_name + team (1|2)
+ *       + name, say + message, cvar + cvar + value from the curated list). Owner or admin; every call is audited.
+ *     produces:
+ *       - application/json
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ message, response } - response is the game server's reply"
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       412:
+ *         description: Unknown action or invalid argument.
+ */
+router.post(
+  "/:match_id/control",
+  Utils.ensureAuthenticated,
+  audited("match.control", {
+    detail: (req) => {
+      const body = firstBody(req);
+      const args = Object.entries(body)
+        .filter(([key]) => key !== "action")
+        .map(([key, value]) => `${key}=${String(value)}`);
+      return [String(body.action ?? ""), ...args].join(" ");
+    }
+  }),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      const body = firstBody(req);
+      let command: string;
+      try {
+        command = controlCommand(body.action, body);
+      } catch (err) {
+        if (err instanceof RconArgumentError) {
+          res.status(412).json({ message: err.message });
+          return;
+        }
+        throw err;
+      }
+      if (process.env.NODE_ENV === "test") {
+        res.json({ message: "Command checked (not sent in tests).", response: command });
+        return;
+      }
+      const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+      const response: string = await serverUpdate.execute(command);
+      res.json({ message: "Command sent.", response });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/status:
+ *   get:
+ *     description: >
+ *       Health of the match's game server - whether RCON answers and MatchZy's get5_status (gamestate, matchid,
+ *       map, plugin version, ...). Owner or admin.
+ *     produces:
+ *       - application/json
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ reachable, status }"
+ */
+router.get("/:match_id/server/status", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+    if (errMessage != null) {
+      res.status(errMessage.status).json({ message: errMessage.message });
+      return;
+    }
+    if (process.env.NODE_ENV === "test") {
+      res.json({ reachable: false, status: null });
+      return;
+    }
+    const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+    const reachable: boolean = await serverUpdate.isServerAlive();
+    const status: unknown = reachable ? await serverUpdate.getMatchStatus().catch(() => null) : null;
+    res.json({ reachable, status });
+  } catch (err) {
     next(err);
   }
 });

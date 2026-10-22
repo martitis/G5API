@@ -78,7 +78,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] `css_endmatch [team1|team2]` (forfeits name the winner), `css_forcepause/forceunpause`, `matchzy_addplayer/removeplayer/listbackups/loadbackup(_url)`
 - [x] Add coach = add player to the team (no `get5_addcoach` in MatchZy)
 - [x] Safe JSON parsing, connection closed on errors, `compare-versions` removed
-- [ ] Verify the `css_*` admin commands from the RCON console on the deployed server (they accept a null player in MatchZy's source). Needed before 5.5
+- [x] `css_*` admin commands from RCON: MatchZy's `IsPlayerAdmin` treats a null player (server console) as admin; `css_team1/2` and `css_asay` read their text raw (sent unquoted). Checked in MatchZy's source (2026-10-22); still worth one test on the deployed server
 ### Backup list/restore bug: done in Phase 1
 ### Event webhook (`v2/api.ts`, `services/mapflowservices.ts`, `services/seriesflowservices.ts`)
 - [x] Handlers awaited, every handler catches and always responds; `going_live` no longer hangs

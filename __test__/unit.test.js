@@ -16,6 +16,7 @@ import {
   swissPairings
 } from "../src/services/bracket.js";
 import { balancedTeams, chooseCaptains, nextPickingTeam, randomTeams } from "../src/services/pugformation.js";
+import { controlCommand } from "../src/utility/matchcontrol.js";
 
 const request = agent(app);
 
@@ -124,7 +125,9 @@ describe("Routes refuse anonymous and malformed requests before touching the dat
     ["post", "/teams/members/resolve"],
     ["post", "/matches/1/callbacks"],
     ["get", "/admin/users"],
-    ["get", "/admin/audit"]
+    ["get", "/admin/audit"],
+    ["post", "/matches/1/control"],
+    ["get", "/matches/1/server/status"]
   ])("%s %s without login gives 401 JSON", (method, path) => {
     return request[method](path)
       .send([{ season_id: 1, match_id: 1 }])
@@ -579,5 +582,35 @@ describe("PUG team formation", () => {
   it("lets captains pick in ABBA order, the two best players being captains", () => {
     expect([0, 1, 2, 3, 4, 5, 6, 7].map(nextPickingTeam)).toEqual([1, 2, 2, 1, 1, 2, 2, 1]);
     expect(chooseCaptains(players).map((p) => p.user_id)).toEqual([1, 2]);
+  });
+});
+
+describe("controlCommand (admin match control)", () => {
+  it.each([
+    ["start", {}, "css_start"],
+    ["skip_veto", {}, "css_skipveto"],
+    ["toggle_knife", {}, "css_roundknife"],
+    ["toggle_playout", {}, "css_playout"],
+    ["toggle_whitelist", {}, "css_whitelist"],
+    ["ready_required", { count: 0 }, "css_readyrequired 0"],
+    ["add_ready_time", { seconds: "120" }, "matchzy_add_ready_time 120"],
+    ["change_map", { map: "de_nuke" }, "css_map de_nuke"],
+    ["team_name", { team: 2, name: " Team Liquid " }, "css_team2 Team Liquid"],
+    ["say", { message: "Tech pause, 5 min" }, "css_asay Tech pause, 5 min"],
+    ["cvar", { cvar: "mp_maxrounds", value: 30 }, "mp_maxrounds 30"]
+  ])("%s -> %s", (action, args, command) => {
+    expect(controlCommand(action, args)).toBe(command);
+  });
+  it.each([
+    ["rcon_password", {}],
+    ["say", { message: 'hi"; quit' }],
+    ["say", { message: "x".repeat(121) }],
+    ["team_name", { team: 3, name: "A" }],
+    ["ready_required", { count: 11 }],
+    ["change_map", { map: "de_nuke; quit" }],
+    ["cvar", { cvar: "sv_cheats", value: 1 }],
+    ["cvar", { cvar: "mp_freezetime", value: 61 }]
+  ])("refuses %s %p", (action, args) => {
+    expect(() => controlCommand(action, args)).toThrow(RconArgumentError);
   });
 });

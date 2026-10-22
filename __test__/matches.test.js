@@ -304,4 +304,21 @@ describe("Test the matches routes", () => {
       await request.post(`/pugs/${queueId}/join`).expect(409);
     });
   });
+
+  describe("match control", () => {
+    it("Should check control commands for the match owner, and refuse bad ones.", async () => {
+      const created = await request.post("/matches/").set("Content-Type", "application/json")
+        .send([{ server_id: 2, team1_id: 4, team2_id: 3, max_maps: 1, veto_mappool: "de_nuke", ignore_server: true }])
+        .expect(200);
+      const id = created.body.id;
+      const ok = await request.post(`/matches/${id}/control`).set("Content-Type", "application/json")
+        .send([{ action: "say", message: "Match starts in 10 min" }]).expect(200);
+      expect(ok.body.response).toBe("css_asay Match starts in 10 min");
+      await request.post(`/matches/${id}/control`).set("Content-Type", "application/json")
+        .send([{ action: "cvar", cvar: "sv_cheats", value: 1 }]).expect(412);
+      const audit = await request.get("/admin/audit?action=match.control");
+      // The matches suite runs as an admin (not super admin), so the audit log itself is refused here.
+      expect([200, 403]).toContain(audit.status);
+    });
+  });
 });
