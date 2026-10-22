@@ -27,6 +27,7 @@ import { RowDataPacket } from "mysql2";
  */
 import { mkdir, writeFile } from "fs/promises";
 
+import logger from "../../utility/logger.js";
 /** Express module
  * @const
  */
@@ -125,7 +126,7 @@ router.post("/", async (req: Request, res: Response) => {
     );
     res.status(200).send({ message: "Success" });
   } catch (error) {
-    console.error(error);
+    logger.error(error);
     res.status(500).send({ message: "Failed to store backup." });
     return;
   }

@@ -4,6 +4,7 @@
 import { NextFunction, Request, Response } from "express";
 import { db } from "../services/db.js";
 
+import logger from "./logger.js";
 type Target = { type: string; id: number | null };
 
 export interface AuditOptions {
@@ -58,7 +59,7 @@ export function audited(action: string, options: AuditOptions = {}) {
             detail ? detail.slice(0, 4000) : null
           ]
         )
-        .catch((err) => console.error("Could not write the audit log:", err));
+        .catch((err) => logger.error({ err }, "Could not write the audit log"));
     });
     next();
   };

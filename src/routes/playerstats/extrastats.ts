@@ -16,6 +16,7 @@ import { RowDataPacket } from "mysql2";
 import { PlayerInfo } from "../../types/playerstats/PlayerObject.js";
 import { Response } from "express-serve-static-core";
 
+import logger from "../../utility/logger.js";
  /* Swagger shared definitions */
 /**
  * @swagger
@@ -418,7 +419,7 @@ import { Response } from "express-serve-static-core";
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
+    logger.error(err);
     res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }

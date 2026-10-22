@@ -16,6 +16,7 @@ import { RowDataPacket } from "mysql2";
 import { AccessMessage } from "../types/mapstats/AccessMessage.js";
 import { VetoObject } from "../types/vetoes/VetoObject.js";
 
+import logger from "../utility/logger.js";
 /**
  * @swagger
  *
@@ -198,7 +199,7 @@ router.get("/:match_id/stream", async (req, res, next) => {
       res.end();
     });
   } catch (err) {
-    console.log(err);
+    logger.error(err);
     res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }

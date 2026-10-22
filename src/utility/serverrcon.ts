@@ -3,6 +3,7 @@ import { Rcon } from "dathost-rcon-client";
 import fetch from "node-fetch";
 import { SteamApiResponse } from "../types/serverrcon/SteamApiResponse.js";
 
+import logger from "./logger.js";
 /** Thrown when a value can't safely be passed as an RCON command argument. */
 export class RconArgumentError extends Error {}
 
@@ -174,7 +175,7 @@ class ServerRcon {
       await this.rcon.connect();
       return await this.rcon.send(commandString);
     } catch (error) {
-      console.error("[RCON] Got error: " + error);
+      logger.error({ err: error }, "[RCON] Got error");
       throw error;
     } finally {
       try {
@@ -231,16 +232,16 @@ class ServerRcon {
       }
       const available = await this.executeJson("get5_web_available");
       if (available == null) {
-        console.log("MatchZy did not answer get5_web_available; is the plugin installed?");
+        logger.info("MatchZy did not answer get5_web_available; is the plugin installed?");
         return false;
       }
       if (available.gamestate != 0) {
-        console.log("Server already has a match loaded.");
+        logger.info("Server already has a match loaded.");
         return false;
       }
       return true;
     } catch (err) {
-      console.error("Error on isAvailable server: " + (err as Error).toString());
+      logger.error({ err }, "Error on isAvailable server");
       throw err;
     }
   }
@@ -257,7 +258,7 @@ class ServerRcon {
       let get5Status = await this.execute("net_public_adr");
       return get5Status != "";
     } catch (err) {
-      console.error("Error on game server: " + (err as Error).toString());
+      logger.error({ err }, "Error on game server");
       return false;
     }
   }
@@ -285,7 +286,7 @@ class ServerRcon {
       
       let data: SteamApiResponse = await response.json() as SteamApiResponse;
       if (!data.response.up_to_date) {
-        console.log(
+        logger.warn(
           `Server is not up to date! Current version: ${serverVersion} - Latest version: ${data.response.required_version}`
         );
         return false;
@@ -293,7 +294,7 @@ class ServerRcon {
         return true;
       }
     } catch (err) {
-      console.error("Error on game server: " + (err as Error).toString());
+      logger.error({ err }, "Error on game server");
       return false;
     }
   }
@@ -312,7 +313,7 @@ class ServerRcon {
       let returnValue = await this.execute(rconCommandString);
       return returnValue;
     } catch (err) {
-      console.error("Error on sendRCON to server: " + (err as Error).toString());
+      logger.error({ err }, "Error on sendRCON to server");
       throw err;
     }
   }
@@ -340,7 +341,7 @@ class ServerRcon {
       );
       // MatchZy only replies on failure (match already set up, invalid URL, HTTP error, invalid config).
       if (/already|invalid|failed|error/i.test(loadMatchResponse)) {
-        console.error("MatchZy refused the match config: " + loadMatchResponse.trim());
+        logger.error("MatchZy refused the match config: " + loadMatchResponse.trim());
         return false;
       }
       // The download and validation happen on the game server; confirm the match actually loaded.
@@ -351,10 +352,10 @@ class ServerRcon {
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-      console.error(`MatchZy did not load match ${expectedMatchId}; check the game server's MatchZy log.`);
+      logger.error(`MatchZy did not load match ${expectedMatchId}; check the game server's MatchZy log.`);
       return false;
     } catch (err) {
-      console.error("Error on preparing match to server: " + (err as Error).toString());
+      logger.error({ err }, "Error on preparing match to server");
       throw err;
     }
   }
@@ -373,12 +374,12 @@ class ServerRcon {
       const response = await this.execute(winner ? `css_endmatch ${winner}` : "css_endmatch");
       // MatchZy prints a usage hint or "no match" message when it refuses; success prints nothing to the console.
       if (/usage|unknown command|no match/i.test(response)) {
-        console.error("MatchZy refused to end the match: " + response.trim());
+        logger.error("MatchZy refused to end the match: " + response.trim());
         return false;
       }
       return true;
     } catch (err) {
-      console.error("RCON error on ending match: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on ending match");
       return false;
     }
   }
@@ -396,7 +397,7 @@ class ServerRcon {
       await this.execute("css_forcepause");
       return true;
     } catch (err) {
-      console.error("RCON error on pause: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on pause");
       return false;
     }
   }
@@ -414,7 +415,7 @@ class ServerRcon {
       await this.execute("css_forceunpause");
       return true;
     } catch (err) {
-      console.error("RCON error on unpause server: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on unpause server");
       return false;
     }
   }
@@ -448,7 +449,7 @@ class ServerRcon {
         );
       return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on addUser: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on addUser");
       throw err;
     }
   }
@@ -477,7 +478,7 @@ class ServerRcon {
         "Added to the team. The coach must type .coach in game to take the coach slot."
       );
     } catch (err) {
-      console.error("RCON error on addCoach: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on addCoach");
       throw err;
     }
   }
@@ -497,7 +498,7 @@ class ServerRcon {
       let loadMatchResponse = await this.execute(`matchzy_removeplayer ${steamId}`);
       return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on removeUser: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on removeUser");
       throw err;
     }
   }
@@ -518,7 +519,7 @@ class ServerRcon {
       let listResponse = await this.execute(`matchzy_listbackups ${id}`);
       return parseBackupList(listResponse);
     } catch (err) {
-      console.error("RCON error on getBackups: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on getBackups");
       throw err;
     }
   }
@@ -538,7 +539,7 @@ class ServerRcon {
       let loadMatchResponse = await this.execute(command);
       return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on restore backup: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on restore backup");
       throw err;
     }
   }
@@ -580,7 +581,7 @@ class ServerRcon {
       );
       return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on restore backup: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on restore backup");
       throw err;
     }
   }

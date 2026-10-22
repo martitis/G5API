@@ -16,6 +16,7 @@ import {
 import type { TournamentFormat } from "../services/bracket.js";
 import GlobalEmitter from "../utility/emitter.js";
 
+import logger from "../utility/logger.js";
 const router = Router();
 
 // Every successful change reaches open bracket pages (GET /tournaments/:id/stream).
@@ -164,7 +165,7 @@ router.get("/:tournament_id/stream", async (req, res, next) => {
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
-        loadTournament(id).then(send).catch((err) => console.error("Tournament stream failed:", err));
+        loadTournament(id).then(send).catch((err) => logger.error({ err }, "Tournament stream failed"));
       }, 1000);
     };
     GlobalEmitter.on("tournamentUpdate", onChange);

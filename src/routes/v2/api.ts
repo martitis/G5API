@@ -42,6 +42,7 @@ import { eventProblem } from "../../services/eventschemas.js";
 import GlobalEmitter from "../../utility/emitter.js";
 import { Get5_OnRoundEnd } from "../../types/map_flow/Get5_OnRoundEnd.js";
 
+import logger from "../../utility/logger.js";
 /** Basic Rate limiter.
  * @const
  */
@@ -103,7 +104,7 @@ router.post("/", basicRateLimit, async (req, res) => {
       // The demo itself arrives on /v2/demo; only failures are worth noting here.
       const demoEvent = req.body as { success?: boolean; filename?: string; map_number?: number };
       if (demoEvent.success === false) {
-        console.error(
+        logger.error(
           `MatchZy failed to upload demo ${demoEvent.filename ?? ""} (match ${matchId}, map ${demoEvent.map_number}).`
         );
         // Shown on the match page; a later successful upload sets demoFile and clears it.
@@ -123,7 +124,7 @@ router.post("/", basicRateLimit, async (req, res) => {
             "Match already finalized or and invalid API key has been given."
         });
       } else if (matchApiCheck == 1) {
-        console.error(
+        logger.error(
           "Match already finalized or and invalid API key has been given."
         );
         return res.status(401).send({
@@ -133,7 +134,7 @@ router.post("/", basicRateLimit, async (req, res) => {
       }
     } else {
       if (matchApiCheck == 2 || matchApiCheck == 1) {
-        console.error(
+        logger.error(
           "Match already finalized or and invalid API key has been given."
         );
         return res.status(401).send({
@@ -146,7 +147,7 @@ router.post("/", basicRateLimit, async (req, res) => {
     // A malformed event would fail halfway through a handler; refuse it whole instead.
     const problem: string | null = eventProblem(req.body);
     if (problem) {
-      console.error(`Malformed MatchZy event for match ${matchId}: ${problem}`);
+      logger.error(`Malformed MatchZy event for match ${matchId}: ${problem}`);
       return res.status(400).send({ message: problem });
     }
 
@@ -220,7 +221,7 @@ router.post("/", basicRateLimit, async (req, res) => {
     // Responses are taken care of in the case statements.
     return;
   } catch (error: unknown) {
-    console.error(`Error handling ${eventType?.event} event for match ${matchId}:`, error);
+    logger.error({ err: error }, `Error handling ${eventType?.event} event for match ${matchId}`);
     if (!res.headersSent) {
       res.status(500).send({ message: "Failed to process event." });
     }

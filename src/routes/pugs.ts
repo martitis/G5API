@@ -5,6 +5,7 @@ import { NextFunction, Request, Response, Router } from "express";
 import Utils from "../utility/utils.js";
 import { audited, firstBody } from "../utility/audit.js";
 import GlobalEmitter from "../utility/emitter.js";
+import logger from "../utility/logger.js";
 import {
   createQueue,
   joinQueue,
@@ -111,7 +112,7 @@ router.get("/:queue_id/stream", async (req, res, next) => {
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
-        loadQueue(id).then(send).catch((err) => console.error("PUG stream failed:", err));
+        loadQueue(id).then(send).catch((err) => logger.error({ err }, "PUG stream failed"));
       }, 200);
     };
     GlobalEmitter.on("pugUpdate", onChange);

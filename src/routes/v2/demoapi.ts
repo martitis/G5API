@@ -37,6 +37,7 @@ import { RowDataPacket } from "mysql2";
  */
 import GlobalEmitter from "../../utility/emitter.js";
 
+import logger from "../../utility/logger.js";
 /** Express module
  * @const
  */
@@ -165,7 +166,7 @@ router.post("/", async (req: Request, res: Response) => {
     res.status(200).send({message: "Success"});
     return;
   } catch (error) {
-    console.error(error);
+    logger.error(error);
     res.status(500).send({ message: error });
     return;
   }

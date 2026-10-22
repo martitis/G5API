@@ -31,6 +31,7 @@ import { RowDataPacket } from "mysql2";
 import { AccessMessage } from "../../types/mapstats/AccessMessage.js";
 import { loadSummaries, viewerOf, type SummaryFilters } from "../../services/matchsummary.js";
 
+import logger from "../../utility/logger.js";
 /**
  * @swagger
  *
@@ -576,7 +577,7 @@ data: ${JSON.stringify([...byId.values()])}
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
-        send().catch((err) => console.error("Match list stream query failed:", err));
+        send().catch((err) => logger.error({ err }, "Match list stream query failed"));
       }, 500);
     };
     const events = ["matchUpdate", "mapStatUpdate"];
@@ -590,7 +591,7 @@ data: ${JSON.stringify([...byId.values()])}
     await send();
   } catch (err) {
     if (res.headersSent) {
-      console.error("Match list stream failed:", err);
+      logger.error({ err }, "Match list stream failed");
       res.end();
     } else {
       next(err);
@@ -751,7 +752,7 @@ router.get("/:match_id/stream", async (req, res, next) => {
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
+    logger.error(err);
     res
       .status(500)
       .write(`event: error\ndata: Internal server error.\n\n`);
@@ -919,7 +920,7 @@ router.get("/:match_id/live/stream", async (req, res, next) => {
           dataset,
           setTimeout(() => {
             timers.delete(dataset);
-            send(dataset).catch((err) => console.error("Live stream query failed:", err));
+            send(dataset).catch((err) => logger.error({ err }, "Live stream query failed"));
           }, 250)
         );
       });
@@ -939,7 +940,7 @@ router.get("/:match_id/live/stream", async (req, res, next) => {
     for (const dataset of datasets) await send(dataset);
   } catch (err) {
     if (res.headersSent) {
-      console.error("Live stream failed:", err);
+      logger.error({ err }, "Live stream failed");
       res.end();
     } else {
       next(err);
@@ -1015,7 +1016,7 @@ router.get("/:match_id/paused/stream", async (req, res, next) => {
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
+    logger.error(err);
     res
       .status(500)
       .write(`event: error\ndata: Internal server error.\n\n`);
@@ -1145,7 +1146,7 @@ router.get("/:match_id/bombs/stream", async (req, res, next) => {
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
+    logger.error(err);
     res
       .status(500)
       .write(`event: error\ndata: Internal server error.\n\n`);
@@ -1203,7 +1204,7 @@ router.get("/:match_id/bombs", async (req, res, next) => {
     let bombInfo: RowDataPacket[] = await db.query(sql, [matchID]);
     res.json({ bombInfo });
   } catch (err) {
-    console.error((err as Error).toString());
+    logger.error(err);
     res
       .status(500)
       .write(`event: error\ndata: Internal server error.\n\n`);
@@ -1672,7 +1673,7 @@ router.put("/", Utils.ensureAuthenticated, audited("match.update", { target: (re
       ) {
         if (serverConn != null) {
           if (!(await serverConn.endGet5Match())) {
-            console.log(
+            logger.warn(
               "Error attempting to stop match on game server side. Will continue."
             );
           }
@@ -1735,7 +1736,7 @@ router.put("/", Utils.ensureAuthenticated, audited("match.update", { target: (re
     }
   } catch (err) {
     next(err);
-    console.error(err);
+    logger.error(err);
   }
 });
 

@@ -34,6 +34,7 @@ import { MapStats } from "../../types/mapstats/MapStats.js";
 import { MatchData } from "../../types/matches/MatchData.js";
 import GlobalEmitter from "../../utility/emitter.js";
 
+import logger from "../../utility/logger.js";
 /**
  * @swagger
  *
@@ -158,7 +159,7 @@ router.post(
           let serverUpdate: GameServer = await getGameServer(req.params.match_id);
           // Ends the series on the server with the forfeit winner announced.
           if (!(await serverUpdate.endGet5Match(req.params.winner_id == "1" ? "team1" : "team2"))) {
-            console.log(
+            logger.warn(
               "Error attempting to stop match on game server side. Will continue."
             );
           }
@@ -167,7 +168,7 @@ router.post(
         return;
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -281,7 +282,7 @@ router.post(
         if (matchRow[0].server_id != null) {
           let serverUpdate: GameServer = await getGameServer(req.params.match_id);
           if (!(await serverUpdate.endGet5Match())) {
-            console.log(
+            logger.warn(
               "Error attempting to stop match on game server side. Will continue."
             );
           }
@@ -290,7 +291,7 @@ router.post(
         return;
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -364,7 +365,7 @@ router.post(
         };
         let serverUpdate: GameServer = await getGameServer(req.params.match_id);
         if (!(await serverUpdate.endGet5Match())) {
-          console.log(
+          logger.warn(
             "Error attempting to stop match on game server side. Will continue."
           );
         }
@@ -387,7 +388,7 @@ router.post(
         return;
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -482,7 +483,7 @@ router.put(
           });
           return;
         } catch (err) {
-          console.error(
+          logger.error(
             "Error attempting to send RCON Command. Please check server log."
           );
           res.status(500).json({
@@ -493,7 +494,7 @@ router.put(
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -556,7 +557,7 @@ router.post(
         return;
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -619,7 +620,7 @@ router.post(
         return;
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -721,7 +722,7 @@ router.put(
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -816,7 +817,7 @@ router.put(
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -899,7 +900,7 @@ router.put(
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -982,7 +983,7 @@ router.put(
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -1049,7 +1050,7 @@ router.get(
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -1151,7 +1152,7 @@ router.post(
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -1290,7 +1291,7 @@ router.post(
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "Error on game server." });
     }
   }
@@ -1344,13 +1345,11 @@ router.get(
         readdir(`public/backups/${req.params.match_id}`, function (err, files) {
           //handling error
           if (err) {
-            console.error(err);
+            logger.error(err);
             return res.status(404).json({ message: "No backups found.", response: [] });;
           }
           //listing all files using forEach
           files.forEach(function (file) {
-            console.log(file);
-            // Do whatever you want to do with the file
             fileArray.push(file)
           });
           res.json({ message: "Backups retrieved.", response: fileArray });
@@ -1358,7 +1357,7 @@ router.get(
         return;
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       res.status(500).json({ message: "API Error." });
     }
   }

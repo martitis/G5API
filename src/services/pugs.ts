@@ -7,6 +7,7 @@ import { db } from "./db.js";
 import GlobalEmitter from "../utility/emitter.js";
 import Utils from "../utility/utils.js";
 import { createMatchAs } from "../routes/matches/matches.js";
+import logger from "../utility/logger.js";
 import {
   balancedTeams,
   chooseCaptains,
@@ -298,7 +299,7 @@ export function startPugSweep(intervalMs = 5000): NodeJS.Timeout {
       .then(async (rows) => {
         for (const row of rows) await tickQueue(row.id);
       })
-      .catch((err) => console.error("PUG sweep failed:", err));
+      .catch((err) => logger.error({ err }, "PUG sweep failed"));
   }, intervalMs);
   timer.unref();
   return timer;
@@ -432,7 +433,7 @@ export async function loadMatch(queueId: number): Promise<void> {
     }
     const message = err instanceof Error ? err.message : String(err);
     await db.query("UPDATE pug_queue SET status = 'failed', error = ? WHERE id = ?", [message.slice(0, 500), queueId]);
-    if (!(err instanceof PugError)) console.error("PUG match load failed:", err);
+    if (!(err instanceof PugError)) logger.error({ err }, "PUG match load failed");
   }
   changed();
 }

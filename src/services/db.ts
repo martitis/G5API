@@ -2,6 +2,7 @@
 import { createPool } from 'mysql2/promise';
 import config from 'config';
 import { FieldPacket, PoolOptions, RowDataPacket } from 'mysql2/typings/mysql';
+import logger from "../utility/logger.js";
 interface IStringIndex {
   [key: string]: any;
 }
@@ -25,7 +26,7 @@ connPool.on("connection", (conn) => {
   // NOW() / CURRENT_TIMESTAMP defaults in UTC too, matching the times the code writes.
   // The pool's "connection" event hands out the callback connection, not the promise wrapper.
   conn.query("SET SESSION group_concat_max_len = 1048576, time_zone = '+00:00'", (err: unknown) => {
-    if (err) console.error("Could not set up a database connection:", err);
+    if (err) logger.error({ err }, "Could not set up a database connection");
   });
 });
 
@@ -42,7 +43,7 @@ class Database {
       const result: [RowDataPacket[], FieldPacket[]] = await connPool.query<RowDataPacket[]>(sql, args);
       return result[0];
     } catch (error) {
-      console.error("SQL ERROR SQL ERROR SQL ERROR SQL ERROR SQL ERROR\n" + String(error));
+      logger.error({ err: error }, "SQL query failed");
       throw error;
     }
   }
@@ -85,7 +86,7 @@ class Database {
       await connPool.query(updateAdmins, [listOfAdmins]);
       await connPool.query(updateSuperAdmins, [listofSuperAdmins]);
     } catch (err) {
-      console.error("Failed to import users. " + String(err));
+      logger.error({ err }, "Failed to import users.");
     }
   }
 }

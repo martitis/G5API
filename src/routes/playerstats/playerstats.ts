@@ -16,6 +16,7 @@ import { RowDataPacket } from "mysql2";
 import { Player } from "../../types/leaderboard/Player.js";
 import { PlayerDatabaseObject } from "../../types/playerstats/PlayerDatabaseObject.js";
 
+import logger from "../../utility/logger.js";
 /* Swagger shared definitions */
 /**
  * @swagger
@@ -515,7 +516,7 @@ router.get("/match/:match_id", async (req, res, next) => {
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
+    logger.error(err);
     res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }

@@ -6,6 +6,7 @@ import { db } from "./db.js";
 import GlobalEmitter from "../utility/emitter.js";
 import { createMatchAs } from "../routes/matches/matches.js";
 
+import logger from "../utility/logger.js";
 /** Runs one scheduled match now: on its server, or the owner's first free server (own ones first, then public). */
 export async function runScheduled(id: number): Promise<void> {
   // Claim the row, so two sweeps never create the same match.
@@ -57,9 +58,9 @@ export async function runDueSchedules(): Promise<void> {
 export function startScheduleSweep(intervalMs = 30000): NodeJS.Timeout {
   void db
     .query("UPDATE scheduled_match SET status = 'pending' WHERE status = 'running'")
-    .catch((err) => console.error("Scheduler reset failed:", err));
+    .catch((err) => logger.error({ err }, "Scheduler reset failed"));
   const timer = setInterval(() => {
-    runDueSchedules().catch((err) => console.error("Scheduled matches failed:", err));
+    runDueSchedules().catch((err) => logger.error({ err }, "Scheduled matches failed"));
   }, intervalMs);
   timer.unref();
   return timer;

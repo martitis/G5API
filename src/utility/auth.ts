@@ -15,6 +15,7 @@ import { generate } from "randomstring";
 import Utils from "./utils.js";
 import User from "steamapi/dist/src/structures/User.js";
 
+import logger from "./logger.js";
 passport.serializeUser((user, done) => {
   done(null, user);
 });
@@ -108,7 +109,7 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
         if (!curUser[0].steam_verified) {
           // Someone registered locally with this Steam ID before its owner ever logged in.
           // The real owner takes the account over; the local credentials are dropped.
-          console.warn(`Steam login verified user ${curUser[0].id}; clearing unverified local credentials.`);
+          logger.warn(`Steam login verified user ${curUser[0].id}; clearing unverified local credentials.`);
           updateUser.username = null;
           updateUser.password = null;
         }
@@ -144,12 +145,7 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
         api_key: curUser[0].id + ":" + Utils.decrypt(curUser[0].api_key),
       });
     } catch (err) {
-      console.log(profile.toString());
-      console.log(
-        "ERRORERRORERRORERRORERRORERRORERRORERROR " +
-        err +
-        "ERRORERRORERRORERRORERRORERRORERRORERROR"
-      );
+      logger.error({ err, steam_id: profile?.id }, "Steam login failed");
       return done(null, null);
     }
   });
@@ -186,7 +182,7 @@ passport.use('local-login', new LocalStrategy(async (username, password, done) =
       return done(null, false, {message: "Invalid username or password."});
     }
   } catch (e) {
-    console.error(e);
+    logger.error(e);
   }
   return done(null, undefined);
 }));
@@ -255,7 +251,7 @@ passport.use('local-register',
         });
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
     return done(null, undefined, 
       {message: "Unknown error. Please ensure the steam ID is not already in use."});

@@ -29,6 +29,7 @@ import { RowDataPacket } from "mysql2";
 import { TeamData } from "../types/teams/TeamData.js";
 import { AuthData } from "../types/teams/AuthData.js";
 
+import logger from "../utility/logger.js";
 /**
  * @swagger
  *
@@ -595,7 +596,7 @@ router.delete("/", Utils.ensureAuthenticated, audited("team.delete", { target: (
     if (checkUser[0].logo) {
       for (const ext of [".png", ".svg"]) {
         unlink("public/img/logos/" + checkUser[0].logo + ext, (err) => {
-          if (err && err.code !== "ENOENT") console.error(err);
+          if (err && err.code !== "ENOENT") logger.error(err);
         });
       }
     }

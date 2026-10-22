@@ -27,9 +27,10 @@ import { Get5_OnRoundStart } from "../types/map_flow/Get5_OnRoundStart.js";
 import update_challonge_match from "./challonge.js";
 import { parseMapPool } from "./matchconfig.js";
 
+import logger from "../utility/logger.js";
 /** Sends the error to the game server; MatchZy doesn't retry, so this mainly shows up in its log. */
 function sendError(res: Response, error: unknown) {
-  console.error(error);
+  logger.error(error);
   if (res.headersSent) return;
   res.status(500).send({ message: error instanceof Error ? error.message : String(error) });
 }
@@ -340,7 +341,7 @@ class MapFlowService {
             matchSeasonInfo[0].max_maps
           );
         } catch (challongeError) {
-          console.error("Challonge update failed:", challongeError);
+          logger.error({ err: challongeError }, "Challonge update failed");
         }
       }
 

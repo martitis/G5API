@@ -5,6 +5,7 @@
 import { RowDataPacket } from "mysql2";
 import { db } from "./db.js";
 import GlobalEmitter from "../utility/emitter.js";
+import logger from "../utility/logger.js";
 import {
   BracketNode,
   generateBracket,
@@ -238,7 +239,7 @@ export async function onMatchChanged(matchId: number | string): Promise<void> {
     for (const row of rows) await refreshTournament(row.tournament_id);
   } catch (err) {
     // A tournament problem must never fail the game server's event.
-    console.error("Tournament update failed:", err);
+    logger.error({ err }, "Tournament update failed");
   }
 }
 

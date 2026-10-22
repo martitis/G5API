@@ -33,6 +33,7 @@ import { Get5_Player } from "../types/Get5_Player.js";
 import { User } from "../types/User.js";
 import { AccessMessage } from "../types/mapstats/AccessMessage.js";
 
+import logger from "./logger.js";
 class Utils {
   /** Function to get an HLTV rating for a user.
    * @function
@@ -76,7 +77,7 @@ class Utils {
 
       return +rating.toFixed(2);
     } catch (err) {
-      console.error("HELPER getRating Failed -- " + err);
+      logger.error({ err }, "HELPER getRating Failed");
       return 0;
     }
   }
@@ -112,7 +113,7 @@ class Utils {
       let decryptedText = utils.utf8.fromBytes(decryptedBytes);
       return decryptedText;
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       // fail silently.
       return null;
     }
@@ -139,7 +140,7 @@ class Utils {
       encryptedHex = hexIV + encryptedHex;
       return encryptedHex;
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       throw err;
     }
   }

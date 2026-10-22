@@ -17,6 +17,7 @@ import { RowDataPacket } from "mysql2";
 import { MapStats } from "../types/mapstats/MapStats.js";
 import { AccessMessage } from "../types/mapstats/AccessMessage.js";
 
+import logger from "../utility/logger.js";
 /**
  * @swagger
  *
@@ -224,7 +225,7 @@ router.get("/:match_id", async (req, res, next) => {
     });
 
   } catch (err) {
-    console.error((err as Error).toString());
+    logger.error(err);
     res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
@@ -287,7 +288,7 @@ router.get("/:match_id/:map_number/stream", async (req, res, next) => {
         mapStatString = `event: mapstats\ndata: ${JSON.stringify(mapstats[0])}\n\n`
         res.write(mapStatString);
       } catch (err) {
-        console.error(err);
+        logger.error(err);
       }
     };
 
@@ -304,7 +305,7 @@ router.get("/:match_id/:map_number/stream", async (req, res, next) => {
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
+    logger.error(err);
     res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }

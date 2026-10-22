@@ -12,6 +12,7 @@ import { Response } from "express";
 import Utils from "../utility/utils.js";
 import update_challonge_match from "../services/challonge.js";
 
+import logger from "../utility/logger.js";
 class SeriesFlowService {
   static async OnSeriesResult(event: Get5_OnSeriesResult, res: Response) {
     try {
@@ -104,7 +105,7 @@ class SeriesFlowService {
             event.winner?.team
           );
         } catch (challongeError) {
-          console.error("Challonge update failed:", challongeError);
+          logger.error({ err: challongeError }, "Challonge update failed");
         }
       }
       // Advances the match's tournament bracket (never throws).
@@ -112,7 +113,7 @@ class SeriesFlowService {
       GlobalEmitter.emit("matchUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -181,7 +182,7 @@ class SeriesFlowService {
       GlobalEmitter.emit("mapStatUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -198,7 +199,7 @@ class SeriesFlowService {
       );
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -215,7 +216,7 @@ class SeriesFlowService {
       );
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -282,7 +283,7 @@ class SeriesFlowService {
       GlobalEmitter.emit("vetoSideUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -314,7 +315,7 @@ class SeriesFlowService {
       GlobalEmitter.emit("bombEvent", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       return res.status(500).send({ message: error instanceof Error ? error.message : String(error) });
     }
   }

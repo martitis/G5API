@@ -252,7 +252,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] `/health` (DB check, 503 when down, no session); pino logger (`utility/logger.ts`, redacts auth headers and
   cookies) for HTTP logs in production, the error handler and unhandled rejections; morgan once in development
   (it ran twice); no HTTP log in tests
-- [ ] Move the remaining `console.*` calls (95 in `src/`) to the logger, file by file
+- [x] All `console.*` calls in `src/` moved to the logger (errors as `{ err }`, so pino keeps the stack)
 - [ ] Rotate the Steam API key leaked in upstream history (`1916f7b`, `4ff0e1e`) if still used. **Needs you**: only
   the key's owner can do it at https://steamcommunity.com/dev/apikey (listed in DEPLOY.md's security checklist)
 - [x] MockStrategy only with NODE_ENV=test **and** `G5API_MOCK_AUTH=1` (set in the jest configs)
