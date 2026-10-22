@@ -12,6 +12,7 @@ const router = Router();
 import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
+import { audited, firstBody } from "../utility/audit.js";
 
 import { generate } from "randomstring";
 import { RowDataPacket } from "mysql2";
@@ -196,7 +197,7 @@ router.get("/:user_id", async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/", Utils.ensureAuthenticated, audited("user.create", { target: (req, body) => ({ type: "user", id: body?.id ?? null }) }), async (req, res, next) => {
   try {
     if (req.user && Utils.adminCheck(req.user)) {
       let steamId: string = req.body[0].steam_id;
@@ -280,7 +281,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req) => ({ type: "user", id: Number(firstBody(req).id) || null }), detail: (req) => { const b = firstBody(req); return [b.admin != null ? `admin=${b.admin}` : "", b.super_admin != null ? `super_admin=${b.super_admin}` : "", b.password ? "password changed" : "", b.new_api ? "new API key" : "", b.challonge_api_key != null ? "Challonge key" : "", b.name != null ? "name" : ""].filter(Boolean).join(", ") || null; } }), async (req, res, next) => {
   try {
     // Resolve exactly one target user; every later check and the update use this row.
     let userToBeUpdated: RowDataPacket[] =
@@ -330,10 +331,14 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
     if (apiKey != null) apiKey = Utils.encrypt(apiKey);
     let updateUser: UserObject;
     if (callerIsSuperAdmin) {
+      // A super admin locked out by mistake gets the role back from super_admins.steam_ids at the next Steam login.
+      const rolesChanged: boolean = req.body[0].admin != null || req.body[0].super_admin != null;
       // Super admins manage roles and can force-set passwords, e.g. for locked out users.
       updateUser = {
         admin: isAdmin,
         super_admin: isSuperAdmin,
+        // Set here, so a Steam login no longer resets them from the config lists.
+        roles_from_config: rolesChanged ? 0 : undefined,
         name: displayName,
         small_image: smallImage,
         medium_image: mediumImage,

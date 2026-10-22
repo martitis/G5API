@@ -10,6 +10,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { hashSync, compare } from "bcrypt";
 import MockStrategy from "./mockstrategy.js";
 import {db} from "../services/db.js";
+import { RowDataPacket } from "mysql2";
 import { generate } from "randomstring";
 import Utils from "./utils.js";
 import User from "steamapi/dist/src/structures/User.js";
@@ -72,6 +73,7 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
           name: profile.displayName,
           admin: isAdmin,
           super_admin: isSuperAdmin,
+          roles_from_config: isAdmin || isSuperAdmin ? 1 : 0,
           created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
           small_image: profile.photos[0].value,
           medium_image: profile.photos[1].value,
@@ -95,10 +97,15 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
           small_image: profile.photos[0].value,
           medium_image: profile.photos[1].value,
           large_image: profile.photos[2].value,
-          super_admin: isSuperAdmin,
-          admin: isAdmin,
           steam_verified: 1
         };
+        // The config lists always grant their role. Leaving a list removes the role only when it came
+        // from the list; roles a super admin set in the panel (roles_from_config = 0) are kept.
+        if (isSuperAdmin || isAdmin) {
+          Object.assign(updateUser, { super_admin: isSuperAdmin, admin: isAdmin, roles_from_config: 1 });
+        } else if (curUser[0].roles_from_config) {
+          Object.assign(updateUser, { super_admin: 0, admin: 0, roles_from_config: 0 });
+        }
         if (!curUser[0].steam_verified) {
           // Someone registered locally with this Steam ID before its owner ever logged in.
           // The real owner takes the account over; the local credentials are dropped.
@@ -124,11 +131,13 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
           await db.query(sql, [defaultMaps]);
         }
       }
+      // The roles as stored now (config list, or set in the panel).
+      const roles: RowDataPacket[] = await db.query("SELECT admin, super_admin FROM user WHERE id = ?", [curUser[0].id]);
       return done(null, {
         steam_id: profile.id,
         name: profile.displayName,
-        super_admin: isSuperAdmin,
-        admin: isAdmin,
+        super_admin: Number(roles[0]?.super_admin) || 0,
+        admin: Number(roles[0]?.admin) || 0,
         id: curUser[0].id,
         small_image: profile.photos[0].value,
         medium_image: profile.photos[1].value,

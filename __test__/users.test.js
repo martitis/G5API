@@ -50,6 +50,23 @@ describe("Test the user routes", () => {
         expect(res.body.url).toMatch(/steamcommunity/);
       });
   });
+  it('Should list users with their roles for a super admin.', () => {
+    return request.get('/admin/users')
+      .expect(200)
+      .expect((res) => {
+        const me = res.body.users.find((user) => user.id === 1);
+        expect(me.super_admin).toBe(1);
+        expect(me.roles_from_config).toBe(1);
+      });
+  });
+  it('Should have written the user creation to the audit log.', () => {
+    return request.get('/admin/audit?action=user.')
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.total).toBeGreaterThan(0);
+        expect(res.body.entries[0]).toMatchObject({ action: expect.stringMatching(/^user\./), user_id: 1 });
+      });
+  });
   it('Should update the existing test user to remove admin privileges.', () => {
     let updatedUserData = [{
       id: 1,

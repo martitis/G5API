@@ -13,6 +13,7 @@ import {db} from "../services/db.js";
 import GameServer from "../utility/serverrcon.js";
 
 import Utils from "../utility/utils.js";
+import { audited, firstBody } from "../utility/audit.js";
 import { RowDataPacket } from "mysql2";
 import { GameServerObject } from "../types/servers/GameServerObject.js";
 
@@ -457,7 +458,7 @@ router.get(
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/", Utils.ensureAuthenticated, audited("server.create", { target: (req, body) => ({ type: "server", id: body?.id ?? null }), detail: (req) => `${firstBody(req).display_name ?? ""} ${firstBody(req).ip_string ?? ""}:${firstBody(req).port ?? ""}` }), async (req, res, next) => {
   try {
     let insertServer: RowDataPacket[];
     let userId: number = req.user!.id;
@@ -540,7 +541,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("server.update", { target: (req) => ({ type: "server", id: Number(firstBody(req).server_id) || null }), detail: (req) => Object.keys(firstBody(req)).filter((k) => k !== "server_id" && k !== "rcon_password").join(", ") + (firstBody(req).rcon_password ? ", rcon password" : "") }), async (req, res, next) => {
   try {
     let userCheckSql: string = "SELECT user_id FROM game_server WHERE id = ?";
     let userId: number = req.user!.id;
@@ -652,7 +653,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.delete("/", Utils.ensureAuthenticated, audited("server.delete", { target: (req) => ({ type: "server", id: Number(firstBody(req).server_id) || null }) }), async (req, res, next) => {
   try {
     let userCheckSql: string = "SELECT user_id, in_use FROM game_server WHERE id = ?";
     const checkUser: RowDataPacket[] = await db.query(userCheckSql, [req.body[0].server_id]);

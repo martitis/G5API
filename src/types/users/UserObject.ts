@@ -3,6 +3,8 @@ export interface UserObject {
     name?: string,
     admin?: number,
     super_admin?: number,
+    /** 1 when admin/super_admin come from the config lists (see the Steam login). */
+    roles_from_config?: number,
     small_image?: string,
     medium_image?: string,
     large_image?: string,

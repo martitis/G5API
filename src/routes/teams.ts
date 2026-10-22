@@ -16,6 +16,7 @@ const router = Router();
 import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
+import { audited, firstBody } from "../utility/audit.js";
 
 import { generate } from "randomstring";
 
@@ -333,7 +334,7 @@ router.get("/:team_id/basic", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/", Utils.ensureAuthenticated, audited("team.create", { target: (req, body) => ({ type: "team", id: body?.id ?? null }), detail: (req) => String(firstBody(req).name ?? "") }), async (req, res, next) => {
   try {
     let userID: number = req.user!.id;
     let teamName: string = req.body[0].name;
@@ -439,7 +440,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("team.update", { target: (req) => ({ type: "team", id: Number(firstBody(req).id) || null }), detail: (req) => `${Object.keys(firstBody(req).auth_name ?? {}).length} players sent` }), async (req, res, next) => {
   try {
     let checkUserSql: string = "SELECT * FROM team WHERE id = ?";
     const checkUser: RowDataPacket[] = await db.query(checkUserSql, [req.body[0]?.id]);
@@ -569,7 +570,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.delete("/", Utils.ensureAuthenticated, audited("team.delete", { target: (req) => ({ type: "team", id: Number(firstBody(req).team_id) || null }), detail: (req) => (firstBody(req).steam_id ? `player ${firstBody(req).steam_id}` : "team") }), async (req, res, next) => {
   try {
     let teamID: number = req.body[0]?.team_id;
     let checkUserSql: string = "SELECT * FROM team WHERE id = ?";

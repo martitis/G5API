@@ -12,6 +12,7 @@ import { db } from "../../services/db.js";
 import { generate } from "randomstring";
 
 import Utils from "../../utility/utils.js";
+import { audited, firstBody } from "../../utility/audit.js";
 
 import GameServer from "../../utility/serverrcon.js";
 
@@ -1462,7 +1463,7 @@ router.get("/:match_id/config", async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/", Utils.ensureAuthenticated, audited("match.create", { target: (req, body) => ({ type: "match", id: body?.id ?? null }), detail: (req) => `teams ${firstBody(req).team1_id ?? "?"} vs ${firstBody(req).team2_id ?? "?"}, server ${firstBody(req).server_id ?? "?"}` }), async (req, res, next) => {
   try {
     // Matches are run by the panel's admins.
     if (!Utils.adminCheck(req.user!)) {
@@ -1738,7 +1739,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("match.update", { target: (req) => ({ type: "match", id: Number(firstBody(req).match_id) || null }), detail: (req) => Object.keys(firstBody(req)).filter((k) => k !== "match_id").join(", ") }), async (req, res, next) => {
   try {
     let diffServer: boolean = false;
     let vetoList: any = null;
@@ -2010,7 +2011,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.delete("/", Utils.ensureAuthenticated, audited("match.delete", { target: (req) => ({ type: "match", id: Number(firstBody(req).match_id) || null }), detail: (req) => (firstBody(req).all_cancelled ? "all cancelled matches" : null) }), async (req, res, next) => {
   try {
     let userId: number = req.user!.id;
     // Everything that belongs to a match, then the match itself.

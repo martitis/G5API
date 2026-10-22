@@ -14,6 +14,7 @@ import Utils from "../../utility/utils.js";
 import GameServer, { BackupEntry, RconArgumentError, restoreFailed } from "../../utility/serverrcon.js";
 import { callbackCvars } from "../../services/matchconfig.js";
 import config from "config";
+import { audited, firstBody } from "../../utility/audit.js";
 
 
 import { existsSync, readdir } from "fs";
@@ -63,6 +64,7 @@ import GlobalEmitter from "../../utility/emitter.js";
 router.post(
   "/:match_id/forfeit/:winner_id",
   Utils.ensureAuthenticated,
+  audited("match.forfeit", { detail: (req) => `winner team ${req.params.winner_id}` }),
   async (req, res, next) => {
     try {
       const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -193,6 +195,7 @@ router.post(
 router.post(
   "/:match_id/cancel/",
   Utils.ensureAuthenticated,
+  audited("match.cancel"),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -314,6 +317,7 @@ router.post(
 router.post(
   "/:match_id/restart/",
   Utils.ensureAuthenticated,
+  audited("match.restart"),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -420,6 +424,7 @@ router.post(
 router.put(
   "/:match_id/rcon/",
   Utils.ensureAuthenticated,
+  audited("match.rcon", { detail: (req) => String(firstBody(req).rcon_command ?? "") }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -514,6 +519,7 @@ router.put(
 router.post(
   "/:match_id/pause/",
   Utils.ensureAuthenticated,
+  audited("match.pause"),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -576,6 +582,7 @@ router.post(
 router.post(
   "/:match_id/unpause/",
   Utils.ensureAuthenticated,
+  audited("match.unpause"),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -656,6 +663,7 @@ router.post(
 router.put(
   "/:match_id/adduser/",
   Utils.ensureAuthenticated,
+  audited("match.add_player", { detail: (req) => `${firstBody(req).steam_id ?? ""} -> ${firstBody(req).team_id ?? ""}` }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -845,6 +853,7 @@ router.put(
 router.put(
   "/:match_id/addspec/",
   Utils.ensureAuthenticated,
+  audited("match.add_spectator", { detail: (req) => String(firstBody(req).steam_id ?? "") }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -927,6 +936,7 @@ router.put(
 router.put(
   "/:match_id/removeuser/",
   Utils.ensureAuthenticated,
+  audited("match.remove_player", { detail: (req) => String(firstBody(req).steam_id ?? "") }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -1078,6 +1088,7 @@ router.get(
 router.post(
   "/:match_id/backup/",
   Utils.ensureAuthenticated,
+  audited("match.restore_backup", { detail: (req) => String(firstBody(req).backup_name ?? "") }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -1182,6 +1193,7 @@ router.post(
 router.post(
   "/:match_id/backup/remote",
   Utils.ensureAuthenticated,
+  audited("match.restore_remote_backup", { detail: (req) => `server ${firstBody(req).server_id ?? ""}: ${firstBody(req).backup_file ?? ""}` }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -1385,7 +1397,7 @@ async function getGameServer(match_id: string): Promise<GameServer> {
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.post("/:match_id/callbacks", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/:match_id/callbacks", Utils.ensureAuthenticated, audited("match.update_callbacks"), async (req, res, next) => {
   try {
     const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
     if (errMessage != null) {

@@ -33,8 +33,9 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
 - `server.dbKey` must be exactly 16 bytes (the AES key that encrypts RCON passwords and API keys in the DB).
 - `server.apiURL` is the public base URL that the game server calls back on. Always build URLs from it with
   `Utils.apiUrl("/path")`, which handles trailing slashes.
-- `admins.steam_ids` / `super_admins.steam_ids` overwrite the user's role flags on every Steam login. Only admins
-  (admin or super admin) can create matches.
+- `admins.steam_ids` / `super_admins.steam_ids` grant their role on every Steam login (`user.roles_from_config = 1`);
+  leaving a list removes the role only when it came from the list. Roles a super admin sets in the panel
+  (`PUT /users`, `roles_from_config = 0`) survive logins. Only admins (admin or super admin) can create matches.
 - Deployment: bare Node + pm2 behind nginx/Caddy. SSE routes need `proxy_buffering off` and long timeouts.
 
 ## Layout
@@ -50,6 +51,9 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
 - `src/utility/utils.ts`: auth guards (`ensureAuthenticated`, `adminCheck`, `superAdminCheck`, `getUserMatchAccess*`),
   `checkApiKey` (game-server auth), `encrypt`/`decrypt`, `getRating`, `getSteamPID`, `updatePlayerStats`, `updatePugStats`
 - `src/utility/emitter.ts`: a global EventEmitter feeding the SSE streams
+- `src/utility/audit.ts`: `audited("area.action", { target, detail })` middleware writes the audit log
+  (`match_audit`) after the response; put it on every new write/admin route. `detail` must never hold secrets.
+- `src/routes/admin.ts`: super-admin `/admin/users` and `/admin/audit`
 - `src/services/challonge.ts`: Challonge score sync. `src/types/`: TS types.
 
 ## MatchZy integration facts (verified against the MatchZy source)

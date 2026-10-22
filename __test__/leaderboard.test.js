@@ -82,6 +82,10 @@ describe("Test the match list summary route", () => {
 describe("Test that only admins create matches", () => {
   // After the matches suite the mock user is a regular user again (scripts/test-admin.mjs reset).
   beforeAll(() => request.get("/auth/steam/return").expect(302));
+  it("Should refuse the admin pages to a regular user.", async () => {
+    await request.get("/admin/users").expect(403);
+    await request.get("/admin/audit").expect(403);
+  });
   it("Should refuse match creation for a regular user.", () => {
     return request
       .post("/matches/")

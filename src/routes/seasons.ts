@@ -14,6 +14,7 @@ const router = Router();
 import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
+import { audited, firstBody } from "../utility/audit.js";
 import { RowDataPacket } from "mysql2";
 import { SeasonObject } from "../types/seasons/SeasonObject.js";
 import { SeasonCvarObject } from "../types/seasons/SeasonCvarObject.js";
@@ -331,7 +332,7 @@ router.get("/:season_id", async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/", Utils.ensureAuthenticated, audited("season.create", { target: (req, body) => ({ type: "season", id: body?.id ?? null }), detail: (req) => String(firstBody(req).name ?? "") }), async (req, res, next) => {
   try {
     let defaultCvar: any = req.body[0].season_cvar;
     const cvarError: string | null = Utils.validateCvars(defaultCvar);
@@ -407,7 +408,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("season.update", { target: (req) => ({ type: "season", id: Number(firstBody(req).season_id) || null }) }), async (req, res, next) => {
   let seasonUserId: string = "SELECT user_id FROM season WHERE id = ?";
   if (req.body[0].season_id == null) {
     res.status(400).json({ message: "No season ID provided." });
@@ -509,7 +510,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.delete("/", Utils.ensureAuthenticated, audited("season.delete", { target: (req) => ({ type: "season", id: Number(firstBody(req).season_id) || null }) }), async (req, res, next) => {
   try {
     let seasonUserId: string = "SELECT user_id FROM season WHERE id = ?";
     const seasonRow: RowDataPacket[] = await db.query(seasonUserId, [req.body[0]?.season_id]);
