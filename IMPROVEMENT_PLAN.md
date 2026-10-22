@@ -202,6 +202,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   - copy buttons work on plain-HTTP LAN addresses (clipboard fallback); match title templates (`{MAPNUMBER}`) hidden
   - test-suite backups were committed; `public/backups` and `public/demos` are now gitignored
   - the `POST /matches` handler is `createMatchHandler` / `createMatchAs()` (used by PUG queues)
+  - database times are UTC end to end (mysql2 read DATETIME as local time; rows written before by NOW() stay shifted)
 - [ ] **5.5 Admin match control center** (RCON, sanitized, confirm dialogs, audit):
   - [x] earlier in the match admin menu: force pause/unpause, end with a winner (forfeit), cancel, restart,
     add/remove player, backup restore, change server, MatchZy config preview, send panel address
@@ -215,7 +216,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
     another source (MatchZy player events or a plugin command); moving a player = `matchzy_removeplayer` + `addplayer`
   - [x] match presets (Official/Scrim/PUG, cvars MatchZy accepts in a config) and user templates (`match_template`,
     `/templates`) on create match
-  - [ ] scheduled auto-load + no-show warning
+  - [x] scheduled matches (`scheduled_match`, `/scheduled`, 30 s sweep; any free server at that time; failed runs
+    keep the reason and can be retried) on create match; no-show chip/warning after 10 minutes waiting for players
   - [ ] practice-mode launcher for a free server (`css_prac` / `css_exitprac`)
 - [ ] **5.6 Fun/community (optional):** match awards, highlights feed, player profiles 2.0 + achievements, Elo/OpenSkill, Discord webhooks, pick'em, OBS overlay, live widget, hall of fame, fun presets
 - [ ] **5.7 Small:**
