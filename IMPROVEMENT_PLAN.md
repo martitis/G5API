@@ -149,7 +149,10 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   `GET /matches/:id/timeline`, rounds/kills/bombs/pause on `/matches/:id/live/stream`. Fixed: MatchZy's
   `winner.side` is "3"/"2" and teams carry no side, so sides were never stored
   - [ ] ready status per player (needs MatchZy ready events or polling `get5_status`)
-- [ ] **5.2 Admin panel** `/admin`: users and roles, servers, live matches, audit log, config preview
+- [x] **5.2 Admin panel** `/admin` (super admins): live matches, users with role editing (server-side guard; unverified
+  accounts can't be admins; panel-set roles survive Steam login via `user.roles_from_config`), all servers, audit log
+  (`audited()` middleware on every match action and create/update/delete route, `GET /admin/audit`). Config preview
+  is in the match admin menu.
 - [ ] **5.3 Tournament tooling:** tournament/stage/bracket tables; SE/DE/RR/Swiss; auto-advance on series_end; auto server assign; bracket UI; Challonge optional
 - [ ] **5.4 PUG queue (opt-in at creation):**
   - "Team mode: Existing teams | PUG queue"
