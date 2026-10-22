@@ -5,6 +5,7 @@ import { backupLoadCommand, parseBackupList, restoreFailed, safeRconArg, RconArg
 import Utils from "../src/utility/utils.js";
 import { buildMatchConfig, callbackCvars, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
 import { buildSummary } from "../src/services/matchsummary.js";
+import { normalizeSide } from "../src/services/mapflowservices.js";
 
 const request = agent(app);
 
@@ -423,5 +424,20 @@ describe("callbackCvars", () => {
     expect(cvars.matchzy_demo_upload_url).toMatch(/\/v2\/demo$/);
     expect(cvars.matchzy_remote_log_header_value).toBe("KEY123");
     expect(callbackCvars("KEY123", false).matchzy_demo_upload_url).toBeUndefined();
+  });
+});
+
+describe("normalizeSide (MatchZy side values)", () => {
+  it.each([
+    ["3", "ct"],
+    ["2", "t"],
+    [3, "ct"],
+    ["ct", "ct"],
+    ["T", "t"],
+    ["0", null],
+    ["none", null],
+    [undefined, null]
+  ])("%p -> %p", (input, expected) => {
+    expect(normalizeSide(input)).toBe(expected);
   });
 });

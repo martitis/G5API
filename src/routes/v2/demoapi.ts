@@ -159,7 +159,9 @@ router.post("/", async (req: Request, res: Response) => {
 
     sqlString = "UPDATE map_stats SET ? WHERE id = ?";
     await db.query(sqlString, [updateStmt, mapInfo[0].id]);
-    GlobalEmitter.emit("demoUpdate");
+    // A successful upload clears an earlier "failed" (buildUpdateStatement drops nulls, so separately).
+    await db.query("UPDATE map_stats SET demo_status = NULL WHERE id = ?", [mapInfo[0].id]);
+    GlobalEmitter.emit("mapStatUpdate");
     res.status(200).send({message: "Success"});
     return;
   } catch (error) {

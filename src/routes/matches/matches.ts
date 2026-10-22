@@ -760,6 +760,92 @@ router.get("/:match_id/stream", async (req, res, next) => {
   }
 });
 
+/** One dataset of the match page: the SSE event name, its query (match id is the only parameter) and the
+ * emitter events after which it is sent again. */
+interface LiveDataset {
+  event: string;
+  sql: string;
+  single?: boolean;
+  on: string[];
+}
+
+/** Round history, kill feed, bomb events and pause state of a match (live stream and /timeline). */
+const TIMELINE_DATASETS: LiveDataset[] = [
+  {
+    event: "rounds",
+    sql:
+      "SELECT map_id, round_number, event_round, winner, winner_side, reason, team1_score, team2_score, round_time " +
+      "FROM match_round WHERE match_id = ? ORDER BY map_id, round_number",
+    on: ["mapStatUpdate"]
+  },
+  {
+    event: "kills",
+    // Newest first; the page shows a feed, not the whole history of a long series.
+    sql:
+      "SELECT id, map_id, round_number, round_time, player_steam_id, player_name, player_side, " +
+      "attacker_steam_id, attacker_name, attacker_side, weapon, headshot, thru_smoke, attacker_blind, no_scope, " +
+      "suicide, friendly_fire, assister_name, flash_assist, bomb " +
+      "FROM player_stat_extras WHERE match_id = ? ORDER BY id DESC LIMIT 500",
+    on: ["playerStatsExtraUpdate"]
+  },
+  {
+    event: "bombs",
+    sql:
+      "SELECT b.id, b.map_id, b.round_number, b.round_time, b.site, b.defused, b.bomb_time_remaining, " +
+      "ps.name AS player_name FROM match_bomb_plants b LEFT JOIN player_stats ps ON ps.id = b.player_stats_id " +
+      "WHERE b.match_id = ? ORDER BY b.id",
+    on: ["bombEvent"]
+  },
+  {
+    event: "pause",
+    sql: "SELECT paused, pause_type, team_paused FROM match_pause WHERE match_id = ?",
+    single: true,
+    on: ["matchUpdate"]
+  }
+];
+
+const queryDataset = async (dataset: LiveDataset, matchID: number): Promise<unknown> => {
+  const rows: RowDataPacket[] = await db.query(dataset.sql, [matchID]);
+  return dataset.single ? (rows[0] ?? null) : rows;
+};
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/timeline:
+ *   get:
+ *     description: Round history, kill feed (newest 500), bomb events and pause state of a match.
+ *     produces:
+ *       - application/json
+ *     parameters:
+ *       - name: match_id
+ *         required: true
+ *         schema:
+ *          type: integer
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ rounds, kills, bombs, pause }"
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.get("/:match_id/timeline", async (req, res, next) => {
+  try {
+    const matchID: number = parseInt(req.params.match_id);
+    const matchRow: RowDataPacket[] = await db.query("SELECT id FROM `match` WHERE id = ?", [matchID]);
+    if (!matchRow.length) {
+      res.status(404).json({ message: "No match found." });
+      return;
+    }
+    const result: Record<string, unknown> = {};
+    for (const dataset of TIMELINE_DATASETS) result[dataset.event] = await queryDataset(dataset, matchID);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * @swagger
  *
@@ -768,8 +854,8 @@ router.get("/:match_id/stream", async (req, res, next) => {
  *     description: >
  *       Everything the match page shows, as one server sent event stream (browsers allow only six
  *       HTTP/1.1 connections per host, so one stream per dataset could stall the page).
- *       Events - matches (object), mapstats, playerstats, vetodata, vetosidedata (arrays). Each event
- *       is sent once on connect and again whenever that data changes.
+ *       Events - matches and pause (objects), mapstats, playerstats, vetodata, vetosidedata, rounds, kills and
+ *       bombs (arrays). Each event is sent once on connect and again whenever that data changes.
  *     produces:
  *       - text/event-stream
  *     parameters:
@@ -802,14 +888,14 @@ router.get("/:match_id/live/stream", async (req, res, next) => {
         "team1_string, team2_string, cancelled, forfeit, start_time, end_time, " +
         "max_maps, title, skip_veto, private_match, enforce_teams, min_player_ready, " +
         "season_id, is_pug, map_sides FROM `match` WHERE id = ?";
-    // emitter event -> SSE event name and the query that rebuilds it.
-    const datasets: Record<string, { event: string; sql: string; single?: boolean }> = {
-      matchUpdate: { event: "matches", sql: matchSql, single: true },
-      mapStatUpdate: { event: "mapstats", sql: "SELECT * FROM map_stats WHERE match_id = ? ORDER BY map_number" },
-      playerStatsUpdate: { event: "playerstats", sql: "SELECT * FROM player_stats WHERE match_id = ?" },
-      vetoUpdate: { event: "vetodata", sql: "SELECT * FROM veto WHERE match_id = ? ORDER BY id" },
-      vetoSideUpdate: { event: "vetosidedata", sql: "SELECT * FROM veto_side WHERE match_id = ? ORDER BY id" }
-    };
+    const datasets: LiveDataset[] = [
+      { event: "matches", sql: matchSql, single: true, on: ["matchUpdate"] },
+      { event: "mapstats", sql: "SELECT * FROM map_stats WHERE match_id = ? ORDER BY map_number", on: ["mapStatUpdate"] },
+      { event: "playerstats", sql: "SELECT * FROM player_stats WHERE match_id = ?", on: ["playerStatsUpdate"] },
+      { event: "vetodata", sql: "SELECT * FROM veto WHERE match_id = ? ORDER BY id", on: ["vetoUpdate"] },
+      { event: "vetosidedata", sql: "SELECT * FROM veto_side WHERE match_id = ? ORDER BY id", on: ["vetoSideUpdate"] },
+      ...TIMELINE_DATASETS
+    ];
 
     res.set({
       "Cache-Control": "no-cache",
@@ -820,39 +906,38 @@ router.get("/:match_id/live/stream", async (req, res, next) => {
     res.flushHeaders();
 
     let closed = false;
-    const send = async (key: string): Promise<void> => {
-      const dataset = datasets[key];
-      const rows: RowDataPacket[] = await db.query(dataset.sql, [matchID]);
-      const data = dataset.single ? (rows[0] ?? null) : rows;
-      if (!closed) res.write(`event: ${dataset.event}
-data: ${JSON.stringify(data)}
-
-`);
+    const send = async (dataset: LiveDataset): Promise<void> => {
+      const data = await queryDataset(dataset, matchID);
+      if (!closed) res.write(`event: ${dataset.event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
-    // Game events arrive in bursts (one round_end updates every player), so coalesce them.
-    const timers: Record<string, NodeJS.Timeout> = {};
-    const listeners: Record<string, () => void> = {};
-    for (const key of Object.keys(datasets)) {
-      listeners[key] = () => {
-        if (timers[key]) return;
-        timers[key] = setTimeout(() => {
-          delete timers[key];
-          send(key).catch((err) => console.error("Live stream query failed:", err));
-        }, 250);
+    // Game events arrive in bursts (one round_end updates every player), so coalesce them per dataset.
+    const timers = new Map<LiveDataset, NodeJS.Timeout>();
+    const listeners: Array<[string, () => void]> = [];
+    for (const dataset of datasets) {
+      const listener = () => {
+        if (timers.has(dataset)) return;
+        timers.set(
+          dataset,
+          setTimeout(() => {
+            timers.delete(dataset);
+            send(dataset).catch((err) => console.error("Live stream query failed:", err));
+          }, 250)
+        );
       };
-      GlobalEmitter.on(key, listeners[key]);
+      for (const emitterEvent of dataset.on) {
+        GlobalEmitter.on(emitterEvent, listener);
+        listeners.push([emitterEvent, listener]);
+      }
     }
     const cleanup = () => {
       if (closed) return;
       closed = true;
-      for (const key of Object.keys(datasets)) {
-        GlobalEmitter.removeListener(key, listeners[key]);
-        clearTimeout(timers[key]);
-      }
+      for (const [emitterEvent, listener] of listeners) GlobalEmitter.removeListener(emitterEvent, listener);
+      for (const timer of timers.values()) clearTimeout(timer);
       res.end();
     };
     req.on("close", cleanup);
-    for (const key of Object.keys(datasets)) await send(key);
+    for (const dataset of datasets) await send(dataset);
   } catch (err) {
     if (res.headersSent) {
       console.error("Live stream failed:", err);

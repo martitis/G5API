@@ -105,6 +105,12 @@ router.post("/", basicRateLimit, async (req, res) => {
         console.error(
           `MatchZy failed to upload demo ${demoEvent.filename ?? ""} (match ${matchId}, map ${demoEvent.map_number}).`
         );
+        // Shown on the match page; a later successful upload sets demoFile and clears it.
+        await db.query(
+          "UPDATE map_stats SET demo_status = 'failed' WHERE match_id = ? AND map_number = ? AND demoFile IS NULL",
+          [matchId, Number(demoEvent.map_number) || 0]
+        );
+        GlobalEmitter.emit("mapStatUpdate");
       }
       return res.status(200).send({message: "Success"});
     } else if (eventType.event == "series_end") {

@@ -58,10 +58,13 @@ async function getPlayerTeamId(matchId: string, steamId: string | undefined): Pr
  * @class
  * Map flow service class for live games.
  */
-/** "ct" or "t" from a MatchZy side value ("ct", "t", "CT", ...), null when unknown. */
-const normalizeSide = (side: unknown): string | null => {
-  const value = typeof side === "string" ? side.toLowerCase() : "";
-  return value === "ct" || value === "t" ? value : null;
+/** "ct" or "t" from a MatchZy side value, null when unknown. MatchZy's winner.side uses the game's team
+ * numbers ("3" = CT, "2" = T, "0" = none); player sides are "ct" / "t". */
+export const normalizeSide = (side: unknown): "ct" | "t" | null => {
+  const value = typeof side === "string" || typeof side === "number" ? String(side).toLowerCase() : "";
+  if (value === "ct" || value === "3" || value === "counterterrorist") return "ct";
+  if (value === "t" || value === "2" || value === "terrorist") return "t";
+  return null;
 };
 
 class MapFlowService {
@@ -278,7 +281,16 @@ class MapFlowService {
 
       // Rounds played so far, from the score (doesn't depend on how MatchZy numbers rounds).
       const roundsPlayed: number = (Number(event.team1.score) || 0) + (Number(event.team2.score) || 0);
-      const team1Side: string | null = normalizeSide(event.team1.side);
+      // MatchZy's team objects carry no side; the winner's side tells which side team 1 played this round.
+      const winnerSide = normalizeSide(event.winner?.side);
+      const team1Side: string | null =
+        winnerSide == null
+          ? null
+          : event.winner?.team === "team1"
+            ? winnerSide
+            : event.winner?.team === "team2"
+              ? winnerSide === "ct" ? "t" : "ct"
+              : null;
       await db.query("UPDATE map_stats SET ? WHERE id = ?", [
         {
           team1_score: event.team1.score,
@@ -291,16 +303,17 @@ class MapFlowService {
       // Round history; a round replayed after a backup restore replaces its row.
       if (roundsPlayed > 0) {
         await db.query(
-          "INSERT INTO match_round (match_id, map_id, round_number, winner, winner_side, reason, team1_score, team2_score, round_time) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-            "ON DUPLICATE KEY UPDATE winner = VALUES(winner), winner_side = VALUES(winner_side), reason = VALUES(reason), " +
-            "team1_score = VALUES(team1_score), team2_score = VALUES(team2_score), round_time = VALUES(round_time)",
+          "INSERT INTO match_round (match_id, map_id, round_number, event_round, winner, winner_side, reason, team1_score, team2_score, round_time) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE event_round = VALUES(event_round), winner = VALUES(winner), winner_side = VALUES(winner_side), " +
+            "reason = VALUES(reason), team1_score = VALUES(team1_score), team2_score = VALUES(team2_score), round_time = VALUES(round_time)",
           [
             event.matchid,
             mapStat.id,
             roundsPlayed,
+            Number.isFinite(Number(event.round_number)) ? Number(event.round_number) : null,
             event.winner?.team === "team1" || event.winner?.team === "team2" ? event.winner.team : null,
-            normalizeSide(event.winner?.side),
+            winnerSide,
             Number.isFinite(Number(event.reason)) ? Number(event.reason) : null,
             event.team1.score,
             event.team2.score,

@@ -73,7 +73,9 @@ Docs: https://shobhit-pathak.github.io/MatchZy/ (commands, configuration, match 
 - **Events** (POST JSON to the remote log URL, header auth): series_start, series_end, map_picked, map_vetoed,
   side_picked, going_live, round_start, round_end (team objects with players[].stats), map_result, player_death,
   bomb_planted, bomb_defused, game_paused, game_unpaused, backup_loaded, player_disconnect, demo_upload_ended.
-  **`attacker`, `assist` and `weapon` can be null.** There's no retry or dedupe, so handlers must be idempotent and must always respond.
+  **`attacker`, `assist` and `weapon` can be null.** `round_number` is the rounds already played when the round
+  started (0-based). `winner.side` is the game's team number (`"3"` CT, `"2"` T, `"0"` none); round_end team objects
+  have **no side**, only `score_ct`/`score_t` (team 1's side comes from the winner). There's no retry or dedupe, so handlers must be idempotent and must always respond.
 - **Uploads:**
   - demos are raw `.dem` (application/octet-stream) with headers `MatchZy-FileName/MatchId/MapNumber/RoundNumber`
     (also sent as `Get5-*`)
