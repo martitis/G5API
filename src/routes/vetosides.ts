@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /vetosides
- * description: Express API router for veto sides in get5.
+ * description: Express API router for veto sides.
  */
 import { Router } from "express";
 

@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /matches
- * description: Express API router for matche server calls in get5.
+ * description: Express API router for a match's game server (MatchZy commands over RCON).
  */
 import { NextFunction, Request, Response, Router } from "express";
 

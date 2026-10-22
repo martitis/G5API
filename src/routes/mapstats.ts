@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /mapstats
- * description: Express API router for mapstats in get5.
+ * description: Express API router for map stats of MatchZy matches.
  */
 import { Router } from "express";
 import app from "../../app.js";

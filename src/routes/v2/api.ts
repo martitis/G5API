@@ -58,9 +58,9 @@ const basicRateLimit = rateLimit({
  *
  * /v2:
  *   post:
- *     description: Retrieves all logged calls from the game server and operates on them as needed, based on the event.
- *                  Please see [events and forwards](http://splewis.github.io/get5/latest/events.html#tag/All-Events/paths/Get_OnEvent/post)
- *                  From the get5 documentation to see what data is required for each event. Typings can also be found in the repository.
+ *     description: MatchZy's event webhook (matchzy_remote_log_url), authenticated with the match API key in the
+ *                  Authorization header. See [MatchZy events](https://shobhit-pathak.github.io/MatchZy/events/);
+ *                  each event's shape is checked in src/services/eventschemas.ts.
  *     produces:
  *       - application/json
  *     tags:

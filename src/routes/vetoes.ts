@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /vetoes
- * description: Express API router for vetoes in get5.
+ * description: Express API router for vetoes.
  */
 import { Router } from "express";
 

@@ -44,19 +44,19 @@ const router: Router = Router();
  *       - v2
  *     parameters:
  *      - in: header
- *        name: Get5-FileName
+ *        name: MatchZy-FileName
  *        description: Name of the backup file coming from the game server.
  *        schema:
  *          type: string
  *        required: true
  *      - in: header
- *        name: Get5-MapNumber
+ *        name: MatchZy-MapNumber
  *        description: Zero-indexed map number in the series.
  *        schema:
  *          type: string
  *        required: true
  *      - in: header
- *        name: Get5-RoundNumber
+ *        name: MatchZy-RoundNumber
  *        description: Zero-indexed map number in the series, if the match is not live it is -1.
  *        schema:
  *          type: string
@@ -68,7 +68,7 @@ const router: Router = Router();
  *          type: string
  *        required: true
  *      - in: header
- *        name: Get5-MatchId
+ *        name: MatchZy-MatchId
  *        description: The ID of the match.
  *        schema:
  *          type: string

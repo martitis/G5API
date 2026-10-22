@@ -7,7 +7,7 @@
 /**
  * @swagger
  * resourcePath: /teams
- * description: Express API router for teams in get5.
+ * description: Express API router for teams.
  */
 import { Router } from "express";
 
@@ -91,7 +91,7 @@ import { AuthData } from "../types/teams/AuthData.js";
  *
  * /teams/:
  *   get:
- *     description: Get all teams registered on get5.
+ *     description: Get all teams registered on the panel.
  *     produces:
  *       - application/json
  *     tags:

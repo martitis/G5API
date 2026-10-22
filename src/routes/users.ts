@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /users
- * description: Express API router for users in get5.
+ * description: Express API router for users.
  */
 import { Router } from "express";
 

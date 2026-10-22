@@ -123,7 +123,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   (`utility/emitter.ts`), so a round in one match no longer re-queries every other match's streams. Emits from the
   REST routes are still unscoped (they reach every stream, as before)
 - [x] `tournamentUpdate` feeds the tournament stream (5.3 live bracket)
-- [ ] Rename Get5 wording in Swagger docs/types to MatchZy
+- [x] Get5 wording in Swagger docs renamed (router descriptions, `/v2` webhook, MatchZy-* upload headers). The
+  `Get5_*` TS type names and `get5_*` RCON commands stay (the commands are MatchZy's Get5-compatible names)
 
 ## Phase 3: G5V stabilization (Vue 2) (G5V branch `phase3-stabilize`)
 - [x] `api.vue`: one shared axios instance (30s timeout); all 69 catch blocks use `errorMessage()` / `errorData()`; `IsLoggedIn` falls back to the anonymous user

@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /seasons
- * description: Express API router for seasons in get5.
+ * description: Express API router for seasons.
  */
 
 import { Router } from "express";

@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /servers
- * description: Express API router for servers in get5.
+ * description: Express API router for game servers.
  */
 
 import { Router } from "express";

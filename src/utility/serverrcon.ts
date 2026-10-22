@@ -246,7 +246,7 @@ class ServerRcon {
   }
 
   /**
-   * Checks the availability of the game server via a get5 call.
+   * Checks that MatchZy answers on the game server (its get5_web_available command).
    * @function
    */
   async isServerAlive(): Promise<boolean> {
@@ -320,7 +320,7 @@ class ServerRcon {
   /**
    * Sets the given URL and API key for a match
    * @function
-   * @param get5URLString - The string of the host where the Get5 API is stored.
+   * @param get5URLString - The URL MatchZy loads the match config from (GET /matches/:id/config).
    * @param get5APIKeyString - The string API key for the game server to authenticate.
    * @returns True if we set everything, false on failure, throw error if there is a problem.
    */

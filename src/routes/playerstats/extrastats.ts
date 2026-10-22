@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /playerstatsextras
- * description: Express API for player additional stats in Get5 matches.
+ * description: Express API for player additional stats in MatchZy matches.
  */
  import { Router } from "express";
  

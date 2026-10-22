@@ -91,7 +91,7 @@ import { loadSummaries, viewerOf, type SummaryFilters } from "../../services/mat
  *           description: Decision on what to do for side types. standard, always_knife, etc.
  *         plugin_version:
  *           type: string
- *           description: The version of the get5 plugin running on the server.
+ *           description: The plugin version reported by get5_status (MatchZy always reports 0.15.0).
  *         spectator_auths:
  *           type: object
  *           properties:
