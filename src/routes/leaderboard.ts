@@ -83,13 +83,12 @@ import { RowDataPacket } from "mysql2";
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     let leaderboard: TeamStanding[] = await getTeamLeaderboard();
     res.json({ leaderboard });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -113,13 +112,12 @@ router.get("/", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/players", async (req, res) => {
+router.get("/players", async (req, res, next) => {
   try {
     let leaderboard: Player[] = await getPlayerLeaderboard();
     res.json({ leaderboard });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -143,13 +141,12 @@ router.get("/players", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/players/pug", async (req, res) => {
+router.get("/players/pug", async (req, res, next) => {
   try {
     let leaderboard: Player[] = await getPlayerLeaderboard(null, true);
     res.json({ leaderboard });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -178,14 +175,13 @@ router.get("/players/pug", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/players/:season_id", async (req, res) => {
+router.get("/players/:season_id", async (req, res, next) => {
   try {
     let seasonId: number = parseInt(req.params.season_id);
     let leaderboard: Player[] = await getPlayerLeaderboard(seasonId);
     res.json({ leaderboard });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
@@ -214,14 +210,13 @@ router.get("/players/:season_id", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/:season_id", async (req, res) => {
+router.get("/:season_id", async (req, res, next) => {
   try {
     let seasonId = parseInt(req.params.season_id);
     let leaderboard = await getTeamLeaderboard(seasonId);
     res.json({ leaderboard });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 

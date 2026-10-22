@@ -753,7 +753,7 @@ router.get("/:match_id/stream", async (req, res, next) => {
     console.error((err as Error).toString());
     res
       .status(500)
-      .write(`event: error\ndata: ${(err as Error).toString()}\n\n`);
+      .write(`event: error\ndata: Internal server error.\n\n`);
     res.end();
   }
 });
@@ -1016,7 +1016,7 @@ router.get("/:match_id/paused/stream", async (req, res, next) => {
     console.error((err as Error).toString());
     res
       .status(500)
-      .write(`event: error\ndata: ${(err as Error).toString()}\n\n`);
+      .write(`event: error\ndata: Internal server error.\n\n`);
     res.end();
   }
 });
@@ -1145,7 +1145,7 @@ router.get("/:match_id/bombs/stream", async (req, res, next) => {
     console.error((err as Error).toString());
     res
       .status(500)
-      .write(`event: error\ndata: ${(err as Error).toString()}\n\n`);
+      .write(`event: error\ndata: Internal server error.\n\n`);
     res.end();
   }
 });
@@ -1203,7 +1203,7 @@ router.get("/:match_id/bombs", async (req, res, next) => {
     console.error((err as Error).toString());
     res
       .status(500)
-      .write(`event: error\ndata: ${(err as Error).toString()}\n\n`);
+      .write(`event: error\ndata: Internal server error.\n\n`);
     res.end();
   }
 });

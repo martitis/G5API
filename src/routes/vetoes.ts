@@ -198,7 +198,7 @@ router.get("/:match_id/stream", async (req, res, next) => {
     });
   } catch (err) {
     console.log(err);
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -420,8 +420,7 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
           .json({ message: "Vetoes were not found, nothing to delete." });
       return;
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: err });
+      next(err);
     }
   }
 });

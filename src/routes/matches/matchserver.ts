@@ -168,7 +168,7 @@ router.post(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -291,7 +291,7 @@ router.post(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -388,7 +388,7 @@ router.post(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -494,7 +494,7 @@ router.put(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -557,7 +557,7 @@ router.post(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -620,7 +620,7 @@ router.post(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -722,7 +722,7 @@ router.put(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -817,7 +817,7 @@ router.put(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -900,7 +900,7 @@ router.put(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -983,7 +983,7 @@ router.put(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -1050,7 +1050,7 @@ router.get(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -1152,7 +1152,7 @@ router.post(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -1291,7 +1291,7 @@ router.post(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -1359,7 +1359,7 @@ router.get(
       }
     } catch (err) {
       console.error(err);
-      res.status(500).json({ message: "API Error.", response: err });
+      res.status(500).json({ message: "API Error." });
     }
   }
 );

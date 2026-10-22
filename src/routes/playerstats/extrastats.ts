@@ -418,7 +418,7 @@ import { Response } from "express-serve-static-core";
     });
   } catch (err) {
     console.error((err as Error).toString());
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });

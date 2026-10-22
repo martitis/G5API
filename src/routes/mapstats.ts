@@ -224,7 +224,7 @@ router.get("/:match_id", async (req, res, next) => {
 
   } catch (err) {
     console.error((err as Error).toString());
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -303,7 +303,7 @@ router.get("/:match_id/:map_number/stream", async (req, res, next) => {
     });
   } catch (err) {
     console.error((err as Error).toString());
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -584,8 +584,7 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
           .json({ message: "ERR - Unauthorized to delete OR not found." });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 
