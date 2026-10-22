@@ -147,7 +147,9 @@ class Utils {
    * @function
    * @memberof module:utils
    * @inner */
+  // this: void - passed to Express as a bare function (it never uses `this`).
   static async ensureAuthenticated(
+    this: void,
     req: Request,
     res: Response,
     next: NextFunction

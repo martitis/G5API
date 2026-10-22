@@ -3,7 +3,7 @@
  * resourcePath: /matches
  * description: Express API router for matche server calls in get5.
  */
-import { Router } from "express";
+import { NextFunction, Request, Response, Router } from "express";
 
 const router = Router();
 
@@ -15,6 +15,15 @@ import GameServer, { BackupEntry, RconArgumentError, restoreFailed } from "../..
 import { callbackCvars } from "../../services/matchconfig.js";
 import config from "config";
 import { audited, firstBody } from "../../utility/audit.js";
+import { onMatchChanged } from "../../services/tournaments.js";
+
+/** After a successful forfeit, cancel or restart, the match's tournament bracket is updated. */
+const refreshTournamentAfter = (req: Request, res: Response, next: NextFunction) => {
+  res.on("finish", () => {
+    if (res.statusCode < 400) void onMatchChanged(req.params.match_id);
+  });
+  next();
+};
 
 
 import { existsSync, readdir } from "fs";
@@ -65,6 +74,7 @@ router.post(
   "/:match_id/forfeit/:winner_id",
   Utils.ensureAuthenticated,
   audited("match.forfeit", { detail: (req) => `winner team ${req.params.winner_id}` }),
+  refreshTournamentAfter,
   async (req, res, next) => {
     try {
       const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -196,6 +206,7 @@ router.post(
   "/:match_id/cancel/",
   Utils.ensureAuthenticated,
   audited("match.cancel"),
+  refreshTournamentAfter,
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -318,6 +329,7 @@ router.post(
   "/:match_id/restart/",
   Utils.ensureAuthenticated,
   audited("match.restart"),
+  refreshTournamentAfter,
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(

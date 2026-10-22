@@ -1470,6 +1470,34 @@ router.post("/", Utils.ensureAuthenticated, audited("match.create", { target: (r
       res.status(403).json({ message: "Only admins can create matches." });
       return;
     }
+    // A match for a tournament slot: the slot must be ready, free, and played by exactly these teams.
+    const tournamentMatchId: number | null = Number(req.body[0]?.tournament_match_id) || null;
+    if (tournamentMatchId) {
+      const slot: RowDataPacket[] = await db.query(
+        "SELECT tm.*, t.user_id AS tournament_owner, t.season_id AS tournament_season, m.cancelled AS linked_cancelled " +
+          "FROM tournament_match tm JOIN tournament t ON t.id = tm.tournament_id " +
+          "LEFT JOIN `match` m ON m.id = tm.match_id WHERE tm.id = ?",
+        [tournamentMatchId]
+      );
+      const node = slot[0];
+      if (!node) {
+        res.status(404).json({ message: "Tournament match not found." });
+        return;
+      }
+      if (node.tournament_owner !== req.user!.id && !Utils.superAdminCheck(req.user!)) {
+        res.status(403).json({ message: "User is not authorized to perform action." });
+        return;
+      }
+      if (node.status !== "ready" || (node.match_id != null && !node.linked_cancelled)) {
+        res.status(409).json({ message: "This tournament match isn't ready or already has a match." });
+        return;
+      }
+      if (Number(req.body[0].team1_id) !== node.team1_id || Number(req.body[0].team2_id) !== node.team2_id) {
+        res.status(412).json({ message: "The teams don't match the tournament pairing." });
+        return;
+      }
+      req.body[0].season_id = node.tournament_season ?? req.body[0].season_id;
+    }
     const cvarError: string | null = Utils.validateCvars(
       req.body[0]?.match_cvars
     );
@@ -1683,6 +1711,10 @@ router.post("/", Utils.ensureAuthenticated, audited("match.create", { target: (r
             return;
           }
         }
+      }
+      if (tournamentMatchId) {
+        await db.query("UPDATE tournament_match SET match_id = ? WHERE id = ?", [insertMatch.insertId, tournamentMatchId]);
+        GlobalEmitter.emit("tournamentUpdate");
       }
       res.json({
         message: "Match inserted successfully!",

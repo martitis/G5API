@@ -6,6 +6,7 @@ import { Get5_OnSidePicked } from "../types/series_flow/veto/Get5_OnSidePicked.j
 import { Get5_OnBackupRestore } from "../types/series_flow/Get5_OnBackupRestore.js";
 import { Get5_OnMapResult } from "../types/series_flow/Get5_OnMapResult.js";
 import GlobalEmitter from "../utility/emitter.js";
+import { onMatchChanged } from "./tournaments.js";
 import { RowDataPacket } from "mysql2";
 import { Response } from "express";
 import Utils from "../utility/utils.js";
@@ -106,6 +107,8 @@ class SeriesFlowService {
           console.error("Challonge update failed:", challongeError);
         }
       }
+      // Advances the match's tournament bracket (never throws).
+      await onMatchChanged(event.matchid);
       GlobalEmitter.emit("matchUpdate");
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {

@@ -6,6 +6,15 @@ import Utils from "../src/utility/utils.js";
 import { buildMatchConfig, callbackCvars, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
 import { buildSummary } from "../src/services/matchsummary.js";
 import { normalizeSide } from "../src/services/mapflowservices.js";
+import {
+  doubleElimination,
+  resolveBracket,
+  roundRobin,
+  seedOrder,
+  singleElimination,
+  standings,
+  swissPairings
+} from "../src/services/bracket.js";
 
 const request = agent(app);
 
@@ -441,5 +450,101 @@ describe("normalizeSide (MatchZy side values)", () => {
     [undefined, null]
   ])("%p -> %p", (input, expected) => {
     expect(normalizeSide(input)).toBe(expected);
+  });
+});
+
+describe("brackets", () => {
+  const teams = (n) => Array.from({ length: n }, (_, i) => 100 + i);
+  /** Plays every ready match, the lower team id (the better seed) winning, until nothing is ready. */
+  const playOut = (nodes, seeds, pick = (a, b) => Math.min(a, b)) => {
+    const results = {};
+    for (let i = 0; i < 100; i++) {
+      const ready = resolveBracket(nodes, seeds, results).filter((node) => node.status === "ready");
+      if (!ready.length) break;
+      for (const node of ready) results[node.key] = { winner_id: pick(node.team1_id, node.team2_id) };
+    }
+    return resolveBracket(nodes, seeds, results);
+  };
+
+  it("seeds 1 and 2 can only meet in the final", () => {
+    expect(seedOrder(8)).toEqual([1, 8, 4, 5, 2, 7, 3, 6]);
+  });
+
+  it("gives byes to the top seeds in single elimination", () => {
+    const seeds = teams(6);
+    const nodes = singleElimination(6);
+    expect(nodes.filter((n) => n.round === 1)).toHaveLength(4);
+    const resolved = resolveBracket(nodes, seeds, {});
+    const byes = resolved.filter((n) => n.status === "bye").map((n) => n.winner_id);
+    expect(byes.sort()).toEqual([100, 101]);
+    // Seed 1's next match waits for the 4 v 5 winner.
+    const final = playOut(nodes, seeds).find((n) => n.final);
+    expect(final).toMatchObject({ status: "done", team1_id: 100, team2_id: 101, winner_id: 100 });
+  });
+
+  it("runs a double elimination to a grand final between both bracket winners", () => {
+    for (const n of [3, 4, 5, 8, 12, 16]) {
+      const seeds = teams(n);
+      const nodes = doubleElimination(n);
+      const done = playOut(nodes, seeds);
+      const final = done.find((node) => node.bracket === "grand_final");
+      // The best seed wins the upper bracket; seed 2 comes through the lower bracket.
+      expect(final).toMatchObject({ status: "done", team1_id: 100, team2_id: 101, winner_id: 100 });
+      // Every team except the winner is eliminated exactly twice or reaches the final.
+      const losses = new Map();
+      for (const node of done.filter((x) => x.status === "done")) losses.set(node.loser_id, (losses.get(node.loser_id) ?? 0) + 1);
+      for (const team of seeds.slice(2)) expect(losses.get(team) ?? 0).toBeLessThanOrEqual(2);
+      expect(done.some((node) => node.status === "ready" || node.status === "pending")).toBe(false);
+    }
+  });
+
+  it("plays every pairing once in a round robin", () => {
+    for (const n of [4, 5]) {
+      const nodes = roundRobin(n);
+      const pairs = new Set(nodes.map((node) => [node.sources[0].seed, node.sources[1].seed].sort().join("-")));
+      expect(pairs.size).toBe((n * (n - 1)) / 2);
+      expect(nodes).toHaveLength((n * (n - 1)) / 2);
+      // Nobody plays twice in a round.
+      for (const round of new Set(nodes.map((node) => node.round))) {
+        const seen = nodes.filter((node) => node.round === round).flatMap((node) => node.sources.map((s) => s.seed));
+        expect(new Set(seen).size).toBe(seen.length);
+      }
+    }
+  });
+
+  it("ranks by wins, then map difference, counting byes as wins", () => {
+    const table = standings(
+      [1, 2, 3],
+      [
+        { team1_id: 1, team2_id: 2, winner_id: 2, team1_maps: 1, team2_maps: 2 },
+        { team1_id: 3, team2_id: 1, winner_id: 1, team1_maps: 0, team2_maps: 2 }
+      ],
+      false,
+      [3]
+    );
+    expect(table.map((row) => [row.team_id, row.wins])).toEqual([
+      [1, 1],
+      [2, 1],
+      [3, 1]
+    ]);
+    expect(table[0].maps_won - table[0].maps_lost).toBe(1);
+  });
+
+  it("pairs Swiss rounds by record without rematches and gives one bye for odd counts", () => {
+    const ids = teams(5);
+    const ranking = standings(ids, [
+      { team1_id: 100, team2_id: 101, winner_id: 100, team1_maps: 1, team2_maps: 0 },
+      { team1_id: 102, team2_id: 103, winner_id: 102, team1_maps: 1, team2_maps: 0 }
+    ], true, [104]);
+    const round2 = swissPairings(2, ranking, [104]);
+    const real = round2.filter((node) => node.sources[1] != null);
+    expect(real).toHaveLength(2);
+    for (const node of real) {
+      const [a, b] = node.sources.map((s) => s.team_id);
+      expect([a, b].sort().join()).not.toBe("100,101");
+      expect([a, b].sort().join()).not.toBe("102,103");
+    }
+    const bye = round2.find((node) => node.sources[1] == null);
+    expect(bye.sources[0].team_id).not.toBe(104);
   });
 });

@@ -54,6 +54,10 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
 - `src/utility/audit.ts`: `audited("area.action", { target, detail })` middleware writes the audit log
   (`match_audit`) after the response; put it on every new write/admin route. `detail` must never hold secrets.
 - `src/routes/admin.ts`: super-admin `/admin/users` and `/admin/audit`
+- Tournaments: `src/services/bracket.ts` (pure, unit tested: single/double elimination with byes, round robin, Swiss
+  pairings, `resolveBracket`, standings), `src/services/tournaments.ts` (DB: start, `refreshTournament`,
+  `onMatchChanged` called on series_end/forfeit/cancel/restart), `src/routes/tournaments.ts`. Slot matches are
+  created through `POST /matches` with `tournament_match_id` (checked: slot ready and free, same teams).
 - `src/services/challonge.ts`: Challonge score sync. `src/types/`: TS types.
 
 ## MatchZy integration facts (verified against the MatchZy source)

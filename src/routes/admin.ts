@@ -16,7 +16,7 @@ const superAdminOnly = (req: Request, res: Response, next: NextFunction) => {
   }
   next();
 };
-router.use((req, res, next) => Utils.ensureAuthenticated(req, res, next), superAdminOnly);
+router.use(Utils.ensureAuthenticated, superAdminOnly);
 
 /**
  * @swagger

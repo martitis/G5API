@@ -213,4 +213,59 @@ describe("Test the matches routes", () => {
         expect(result.body.message).toMatch(/successfully/);
       });
   });
+
+  describe("tournaments", () => {
+    let tournamentId;
+    let finalNode;
+    it("Should create a single elimination tournament in draft.", async () => {
+      const result = await request
+        .post("/tournaments")
+        .set("Content-Type", "application/json")
+        .send([{
+          name: "Test Cup",
+          format: "single_elim",
+          team_ids: [4, 3],
+          settings: { best_of: 1, final_best_of: 1, map_pool: ["de_mirage", "de_nuke"] }
+        }])
+        .expect(200);
+      tournamentId = result.body.id;
+      expect(tournamentId).toBeGreaterThan(0);
+    });
+    it("Should refuse a map pool shorter than the longest series.", () => {
+      return request
+        .post("/tournaments")
+        .set("Content-Type", "application/json")
+        .send([{ name: "Bad", format: "swiss", team_ids: [4, 3], settings: { final_best_of: 3, map_pool: ["de_mirage"] } }])
+        .expect(412);
+    });
+    it("Should start it with one ready final between the seeds.", async () => {
+      await request.post(`/tournaments/${tournamentId}/start`).expect(200);
+      const result = await request.get(`/tournaments/${tournamentId}`).expect(200);
+      expect(result.body.tournament.status).toBe("running");
+      expect(result.body.nodes).toHaveLength(1);
+      finalNode = result.body.nodes[0];
+      expect(finalNode).toMatchObject({ status: "ready", team1_id: 4, team2_id: 3, final: true });
+      await request.post(`/tournaments/${tournamentId}/start`).expect(412);
+    });
+    it("Should only create the slot's match with the slot's teams.", async () => {
+      const base = { max_maps: 1, veto_mappool: "de_mirage de_nuke", ignore_server: true, tournament_match_id: finalNode.id };
+      await request.post("/matches/").set("Content-Type", "application/json")
+        .send([{ ...base, team1_id: 3, team2_id: 4 }]).expect(412);
+      const created = await request.post("/matches/").set("Content-Type", "application/json")
+        .send([{ ...base, team1_id: 4, team2_id: 3 }]).expect(200);
+      finalNode.match_id = created.body.id;
+      await request.post("/matches/").set("Content-Type", "application/json")
+        .send([{ ...base, team1_id: 4, team2_id: 3 }]).expect(409);
+    });
+    it("Should finish the tournament when the final has a winner.", async () => {
+      await request.put("/matches/").set("Content-Type", "application/json")
+        .send([{ match_id: finalNode.match_id, winner: 3, team1_score: 0, team2_score: 1,
+          end_time: new Date().toISOString().slice(0, 19).replace("T", " ") }])
+        .expect(200);
+      await request.post(`/tournaments/${tournamentId}/refresh`).expect(200);
+      const result = await request.get(`/tournaments/${tournamentId}`).expect(200);
+      expect(result.body.tournament.status).toBe("finished");
+      expect(result.body.nodes[0]).toMatchObject({ status: "done", winner_id: 3, score: [0, 1] });
+    });
+  });
 });
