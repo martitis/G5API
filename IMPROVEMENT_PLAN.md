@@ -176,7 +176,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   halftime), kill feed, pause banner, demo status; `match_round` (+ `event_round`), `map_stats.demo_status`,
   `GET /matches/:id/timeline`, rounds/kills/bombs/pause on `/matches/:id/live/stream`. Fixed: MatchZy's
   `winner.side` is "3"/"2" and teams carry no side, so sides were never stored
-  - [ ] ready status per player (needs MatchZy ready events or polling `get5_status`)
+  - [x] ready status: per team (`GET /matches/:id/ready`, public, cached 5 s) from `get5_status`, which reports
+    `ready` and `connected_clients` per team only (checked in MatchZy's G5API.cs); per player isn't exposed by MatchZy
 - [x] **5.2 Admin panel** `/admin` (super admins): live matches, users with role editing (server-side guard; unverified
   accounts can't be admins; panel-set roles survive Steam login via `user.roles_from_config`), all servers, audit log
   (`audited()` middleware on every match action and create/update/delete route, `GET /admin/audit`). Config preview
