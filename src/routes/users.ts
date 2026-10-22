@@ -287,11 +287,11 @@ router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req
     let userToBeUpdated: RowDataPacket[] =
       req.body[0]?.id != null
         ? await db.query(
-            "SELECT id, steam_id, name, admin, super_admin, username, password FROM user WHERE id = ?",
+            "SELECT id, steam_id, name, admin, super_admin, username, password, steam_verified FROM user WHERE id = ?",
             [req.body[0].id]
           )
         : await db.query(
-            "SELECT id, steam_id, name, admin, super_admin, username, password FROM user WHERE steam_id = ?",
+            "SELECT id, steam_id, name, admin, super_admin, username, password, steam_verified FROM user WHERE steam_id = ?",
             [req.body[0]?.steam_id]
           );
     if (!userToBeUpdated.length) {
@@ -333,6 +333,11 @@ router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req
     if (callerIsSuperAdmin) {
       // A super admin locked out by mistake gets the role back from super_admins.steam_ids at the next Steam login.
       const rolesChanged: boolean = req.body[0].admin != null || req.body[0].super_admin != null;
+      // A local account's Steam ID isn't proven: it must not get admin rights (see steam_verified).
+      if (rolesChanged && (Number(isAdmin) > 0 || Number(isSuperAdmin) > 0) && !Number(target.steam_verified)) {
+        res.status(412).json({ message: "Only accounts that signed in with Steam can be admins." });
+        return;
+      }
       // Super admins manage roles and can force-set passwords, e.g. for locked out users.
       updateUser = {
         admin: isAdmin,

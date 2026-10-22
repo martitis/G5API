@@ -50,6 +50,21 @@ describe("Test the user routes", () => {
         expect(res.body.url).toMatch(/steamcommunity/);
       });
   });
+  it('Should refuse admin rights for an account that never signed in with Steam.', async () => {
+    // A separate client, so the super admin's session stays logged in.
+    await agent(app)
+      .post('/register')
+      .set('Content-Type', 'application/json')
+      .send({ username: "localonly", password: "localonly-pass", steam_id: "76561198000000777" })
+      .expect(200);
+    return request.put('/users')
+      .set('Content-Type', 'application/json')
+      .send([{ steam_id: "76561198000000777", admin: 1 }])
+      .expect(412)
+      .expect((res) => {
+        expect(res.body.message).toMatch(/signed in with Steam/);
+      });
+  });
   it('Should list users with their roles for a super admin.', () => {
     return request.get('/admin/users')
       .expect(200)
