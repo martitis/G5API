@@ -110,7 +110,7 @@ import { AuthData } from "../types/teams/AuthData.js";
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     const sql: string =
       "SELECT usr.name as owner, t.id, t.user_id, t.name, t.flag, t.logo, t.tag, t.public_team, " +
@@ -137,8 +137,7 @@ router.get("/", async (req, res) => {
     }
     res.json({ teams });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -166,7 +165,7 @@ router.get("/", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/myteams", Utils.ensureAuthenticated, async (req, res) => {
+router.get("/myteams", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     const sql: string =
       "SELECT usr.name as owner, t.id, t.user_id, t.name, t.flag, t.logo, t.tag, t.public_team, " +
@@ -192,8 +191,7 @@ router.get("/myteams", Utils.ensureAuthenticated, async (req, res) => {
     }
     res.json({ teams });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -227,7 +225,7 @@ router.get("/myteams", Utils.ensureAuthenticated, async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/:team_id", async (req, res) => {
+router.get("/:team_id", async (req, res, next) => {
   try {
     let teamID: number = parseInt(req.params.team_id);
     let sql: string =
@@ -252,8 +250,7 @@ router.get("/:team_id", async (req, res) => {
     team = JSON.parse(JSON.stringify(team[0]));
     res.json({ team });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -287,7 +284,7 @@ router.get("/:team_id", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/:team_id/basic", async (req, res) => {
+router.get("/:team_id/basic", async (req, res, next) => {
   try {
     let teamID: number = parseInt(req.params.team_id);
     let sql: string =
@@ -303,8 +300,7 @@ router.get("/:team_id/basic", async (req, res) => {
     team = JSON.parse(JSON.stringify(team[0]));
     res.json({ team });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -640,7 +636,7 @@ router.delete("/", Utils.ensureAuthenticated, audited("team.delete", { target: (
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/:team_id/recent/", async (req, res) => {
+router.get("/:team_id/recent/", async (req, res, next) => {
   try {
     let teamId: number = parseInt(req.params.team_id);
     let recentLimit: number = 
@@ -660,8 +656,7 @@ router.get("/:team_id/recent/", async (req, res) => {
     let matches: RowDataPacket[] = await db.query(sql, [teamId, teamId, teamId, recentLimit]);
     res.json({ matches });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -701,7 +696,7 @@ router.get("/:team_id/recent/", async (req, res) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/:team_id/result/:match_id", async (req, res) => {
+router.get("/:team_id/result/:match_id", async (req, res, next) => {
   try {
     let myScore: number = 0;
     let otherTeamScore: number = 0;
@@ -767,8 +762,7 @@ router.get("/:team_id/result/:match_id", async (req, res) => {
         "Tied, " + myScore + ":" + otherTeamScore + " vs " + otherName;
     res.json({ result: statusString });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 

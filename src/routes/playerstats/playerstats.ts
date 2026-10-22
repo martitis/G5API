@@ -186,8 +186,7 @@ router.get("/", async (req, res, next) => {
     }
     res.json({ playerStats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -224,8 +223,7 @@ router.get("/unique", async (req, res, next) => {
     }
     res.json({ count: playercount[0].cnt });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -269,8 +267,7 @@ router.get("/:steam_id", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -313,8 +310,7 @@ router.get("/:steam_id/pug", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -357,8 +353,7 @@ router.get("/:steam_id/official", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -406,8 +401,7 @@ router.get("/:steam_id/official", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -451,8 +445,7 @@ router.get("/match/:match_id", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -573,8 +566,7 @@ router.get("/match/:match_id", async (req, res, next) => {
     const matches: RowDataPacket[] = await db.query(sql, [steamId]);
     res.json({ matches });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -704,7 +696,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       });
     }
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -847,8 +839,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       return;
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -933,8 +924,7 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
       return;
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 

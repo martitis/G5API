@@ -394,8 +394,7 @@ router.get("/", async (req, res, next) => {
       res.json({ matches });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -465,8 +464,7 @@ router.get("/mymatches", Utils.ensureAuthenticated, async (req, res, next) => {
       res.json({ matches });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -662,8 +660,7 @@ router.get("/:match_id", async (req, res, next) => {
     const match: any = JSON.parse(JSON.stringify(matches[0]));
     res.json({ match });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -1063,8 +1060,7 @@ router.get("/:match_id/paused", async (req, res, next) => {
     }
     res.json({ matchPauseInfo });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -1262,8 +1258,7 @@ router.get("/limit/:limiter", async (req, res, next) => {
     const matches: RowDataPacket[] = await db.query(sql, [lim]);
     res.json({ matches });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -1324,8 +1319,7 @@ router.get("/page/:firstvalue&:lastvalue", async (req, res, next) => {
     const matches: RowDataPacket[] = await db.query(sql, [firstVal, secondVal]);
     res.json({ matches });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -1737,7 +1731,7 @@ router.put("/", Utils.ensureAuthenticated, audited("match.update", { target: (re
       return;
     }
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
     console.error(err);
   }
 });

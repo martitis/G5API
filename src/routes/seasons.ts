@@ -98,8 +98,7 @@ router.get("/", async (req, res, next) => {
     await attachSeasonCvars(seasons);
     res.json({ seasons });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -141,8 +140,7 @@ router.get("/myseasons", Utils.ensureAuthenticated, async (req, res, next) => {
     await attachSeasonCvars(seasons);
     res.json({ seasons });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -201,8 +199,7 @@ router.get(
       await attachSeasonCvars(seasons);
       res.json({ seasons });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 );
@@ -249,7 +246,7 @@ router.get(
       }
       res.json({ cvars: season[0].cvars });
     } catch (err) {
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 );
@@ -366,8 +363,7 @@ router.post("/", Utils.ensureAuthenticated, audited("season.create", { target: (
       id: insertSeason.insertId,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -468,8 +464,7 @@ router.put("/", Utils.ensureAuthenticated, audited("season.update", { target: (r
       }
       res.json({ message: "Season updated successfully!" });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 });

@@ -95,15 +95,14 @@ import { UserObject } from "../types/users/UserObject.js";
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     let sql: string =
       "SELECT id, name, steam_id, small_image, medium_image, large_image FROM user";
     const users: RowDataPacket[] = await db.query(sql);
     res.json({ users });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -164,8 +163,7 @@ router.get("/:user_id", async (req, res, next) => {
       res.status(404).json({ message: "User does not exist in the system." });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -242,8 +240,7 @@ router.post("/", Utils.ensureAuthenticated, audited("user.create", { target: (re
       res.status(403).json({ message: "You are not authorized to do this." });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -442,8 +439,7 @@ router.get("/:user_id/steam", async (req, res, next) => {
       url: "https://steamcommunity.com/profiles/" + allUsers[0].steam_id,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -494,8 +490,7 @@ router.get("/:user_id/recent", async (req, res, next) => {
     const matches: RowDataPacket[] = await db.query(sql, [userOrSteamID, userOrSteamID]);
     res.json({ matches });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 

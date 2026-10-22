@@ -115,8 +115,7 @@ router.get("/", Utils.ensureAuthenticated, async (req, res, next) => {
     let servers: RowDataPacket[] = await db.query(sql);
     res.json({ servers });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -150,8 +149,7 @@ router.get("/", Utils.ensureAuthenticated, async (req, res, next) => {
     let servers: RowDataPacket[] = await db.query(sql);
     res.json({ "servers": servers[0].cnt });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -201,8 +199,7 @@ router.get("/available", Utils.ensureAuthenticated, async (req, res, next) => {
     else servers = await db.query(sql);
     res.json({ servers });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -238,8 +235,7 @@ router.get("/myservers", Utils.ensureAuthenticated, async (req, res, next) => {
     let servers: RowDataPacket[] = await db.query(sql, [req.user?.id]);
     res.json({ servers });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -304,8 +300,7 @@ router.get("/:server_id", Utils.ensureAuthenticated, async (req, res, next) => {
       res.json({ server });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -432,8 +427,7 @@ router.get(
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 );
@@ -607,8 +601,7 @@ router.post("/", Utils.ensureAuthenticated, audited("server.create", { target: (
       });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -726,8 +719,7 @@ router.put("/", Utils.ensureAuthenticated, audited("server.update", { target: (r
       } else throw "ERROR - Game server not updated.";
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -807,8 +799,7 @@ router.delete("/", Utils.ensureAuthenticated, audited("server.delete", { target:
       }
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 

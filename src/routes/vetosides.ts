@@ -83,7 +83,7 @@ router.get("/", async (req, res, next) => {
     }
     res.json({ vetoes });
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -127,7 +127,7 @@ router.get("/:match_id", async (req, res, next) => {
     }
     res.json({ vetoes });
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -280,8 +280,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         id: vetoSideId.insertId,
       });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 });
@@ -351,8 +350,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       GlobalEmitter.emit("vetoSideUpdate");
       res.json({ message: "Veto updated successfully!" });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 });

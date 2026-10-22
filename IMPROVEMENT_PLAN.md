@@ -59,8 +59,8 @@ Last reviewed against the code: 2026-10-22.
 - [x] ~~Enforce `private_match` on reads~~: dropped (decision: no private matches). The match list summary still hides
   `private_match` rows from outsiders; the match page and old list routes don't check it
 - [ ] `public_team` on team reads; per-server cvar whitelist for public servers
-- [ ] 66 route handlers still answer `err.toString()` in their own catch blocks (leaks SQL/RCON details); switch them
-  to `next(err)` (the global handler sends a generic message)
+- [x] The 66 route handlers that answered `err.toString()` now call `next(err)` (the global handler logs and sends
+  a generic message)
 
 ## Phase 2: Backend bugs + MatchZy-native integration (branch `phase2-matchzy` in both repos)
 Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySystem.cs, EventHandlers.cs, ConsoleCommands.cs).

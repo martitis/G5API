@@ -109,8 +109,7 @@ router.get("/", async (req, res, next) => {
     }
     res.json({ mapstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -154,8 +153,7 @@ router.get("/:match_id", async (req, res, next) => {
     }
     res.json({ mapstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -356,7 +354,7 @@ router.get("/:match_id/:map_number/stream", async (req, res, next) => {
     const mapstat = JSON.parse(JSON.stringify(mapstats[0]));
     res.json({ mapstat });
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -423,8 +421,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -512,8 +509,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
           .json({ message: "ERROR - Maps Stats not updated or found." });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 

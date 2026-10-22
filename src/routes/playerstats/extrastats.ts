@@ -139,8 +139,7 @@ import { Response } from "express-serve-static-core";
       }
       res.json({ playerStatExtra });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
 });
 
@@ -186,8 +185,7 @@ import { Response } from "express-serve-static-core";
     }
     res.json({ extrastats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -225,8 +223,7 @@ import { Response } from "express-serve-static-core";
     let steamID: string = req.params.steam_id;
     return getIdFromMatches(steamID, 1, null, res);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -264,8 +261,7 @@ import { Response } from "express-serve-static-core";
     let steamID: string = req.params.steam_id;
     return getIdFromMatches(steamID, 0, null, res);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -308,8 +304,7 @@ import { Response } from "express-serve-static-core";
       let seasonID: number = parseInt(req.params.season_id);
       return getIdFromMatches(steamID, 0, seasonID, res);
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
 });
 
@@ -353,8 +348,7 @@ import { Response } from "express-serve-static-core";
     }
     res.json({ extrastats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -541,7 +535,7 @@ import { Response } from "express-serve-static-core";
       });
     }
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -668,8 +662,7 @@ import { Response } from "express-serve-static-core";
       return;
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -754,8 +747,7 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
       return;
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
