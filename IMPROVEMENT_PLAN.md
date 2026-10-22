@@ -135,8 +135,12 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [ ] Merge `phase4-vue3` into G5V (after a manual check of every page against a running API)
 
 ## Phase 5: Features
-- [ ] **5.0 Match list redesign:** single-SQL summary endpoint (series score, status, current map + round score + sides), `/matches/live/stream`, card rows with W/L badges, LIVE/PAUSED chips, per-map mini scores, filters, mobile layout; reuse it on Home
-- [ ] **5.1 Live match view:** `match_round` table, round history, kill feed, bomb markers, pause banner, demo status, `/matches/:id/live/stream`
+- [x] **5.0 Match list redesign** (branches `phase5-match-list` in G5API and G5V-next):
+  - `GET /matches/summary` (paged, filters, privacy-aware, unit-tested `buildSummary`) and `/matches/summary/stream`
+  - migration: `map_stats.team1_side` / `round_number` and the `match_round` table, filled on round_end
+  - match rows with W/L/T badges, LIVE/PAUSED/WARMUP chips, live map + round + CT/T score, mini map scores,
+    connect/GOTV, filters, pagination, mobile layout; used on Matches, My Matches, Home, season and team pages
+- [ ] **5.1 Live match view:** (`match_round` table and `/matches/:id/live/stream` done) round history, kill feed, bomb markers, pause banner, demo status, `/matches/:id/live/stream`
 - [ ] **5.2 Admin panel** `/admin`: users and roles, servers, live matches, audit log, config preview
 - [ ] **5.3 Tournament tooling:** tournament/stage/bracket tables; SE/DE/RR/Swiss; auto-advance on series_end; auto server assign; bracket UI; Challonge optional
 - [ ] **5.4 PUG queue (opt-in at creation):**
