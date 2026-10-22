@@ -28,6 +28,7 @@ import {
 import { MatchData } from "../../types/matches/MatchData.js";
 import { RowDataPacket } from "mysql2";
 import { AccessMessage } from "../../types/mapstats/AccessMessage.js";
+import { loadSummaries, viewerOf, type SummaryFilters } from "../../services/matchsummary.js";
 
 /**
  * @swagger
@@ -465,6 +466,136 @@ router.get("/mymatches", Utils.ensureAuthenticated, async (req, res, next) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: (err as Error).toString() });
+  }
+});
+
+/** Parses the shared query parameters of the summary routes. */
+const summaryFilters = (query: Record<string, unknown>): SummaryFilters => {
+  const int = (value: unknown) => {
+    const parsed = typeof value === "string" ? parseInt(value, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  };
+  return {
+    status: typeof query.status === "string" ? query.status : undefined,
+    season_id: int(query.season_id),
+    team_id: int(query.team_id),
+    server_id: int(query.server_id),
+    mine: query.mine === "true" || query.mine === "1",
+    q: typeof query.q === "string" && query.q.trim() ? query.q.trim().slice(0, 64) : undefined,
+    limit: int(query.limit),
+    offset: int(query.offset) ?? 0
+  };
+};
+
+/**
+ * @swagger
+ *
+ * /matches/summary:
+ *   get:
+ *     description: >
+ *       One page of the match list, live and upcoming matches first. Each entry has the teams (tag, logo, flag),
+ *       series and map scores, the live map's round score and sides, pause state and a status
+ *       (pending, warmup, live, paused, finished, cancelled). Private matches are only listed for their owner,
+ *       admins and team members; the server address only for those who may connect.
+ *     produces:
+ *       - application/json
+ *     parameters:
+ *       - { name: status, in: query, schema: { type: string, enum: [active, finished, cancelled, all] } }
+ *       - { name: season_id, in: query, schema: { type: integer } }
+ *       - { name: team_id, in: query, schema: { type: integer } }
+ *       - { name: server_id, in: query, schema: { type: integer } }
+ *       - { name: mine, in: query, schema: { type: boolean } }
+ *       - { name: q, in: query, description: Team name or title contains, schema: { type: string } }
+ *       - { name: limit, in: query, schema: { type: integer, default: 25, maximum: 100 } }
+ *       - { name: offset, in: query, schema: { type: integer, default: 0 } }
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: The page and the total number of matching matches.
+ *       500:
+ *         $ref: '#/components/responses/Error'
+ */
+router.get("/summary", async (req, res, next) => {
+  try {
+    res.json(await loadSummaries(summaryFilters(req.query), viewerOf(req.user)));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /matches/summary/stream:
+ *   get:
+ *     description: >
+ *       Server sent events for the match list. Each "summaries" event holds the current summaries of the
+ *       requested ids plus every active match, sent on connect and whenever match or map data changes.
+ *     produces:
+ *       - text/event-stream
+ *     parameters:
+ *       - { name: ids, in: query, description: Comma separated match ids on screen (up to 100), schema: { type: string } }
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: The stream.
+ */
+router.get("/summary/stream", async (req, res, next) => {
+  try {
+    const viewer = viewerOf(req.user);
+    const ids: number[] = (typeof req.query.ids === "string" ? req.query.ids : "")
+      .split(",")
+      .map((id) => parseInt(id, 10))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .slice(0, 100);
+    res.set({
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Content-Type": "text/event-stream",
+      "X-Accel-Buffering": "no"
+    });
+    res.flushHeaders();
+
+    let closed = false;
+    const send = async () => {
+      const [known, active] = await Promise.all([
+        loadSummaries({ ids, status: "all", limit: 100 }, viewer),
+        loadSummaries({ status: "active", limit: 100 }, viewer)
+      ]);
+      const byId = new Map<number, unknown>();
+      for (const summary of [...known.matches, ...active.matches]) byId.set(summary.id, summary);
+      if (!closed) res.write(`event: summaries
+data: ${JSON.stringify([...byId.values()])}
+
+`);
+    };
+    // round_end alone fires several updates; send at most one refresh per half second.
+    let timer: NodeJS.Timeout | null = null;
+    const onChange = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        send().catch((err) => console.error("Match list stream query failed:", err));
+      }, 500);
+    };
+    const events = ["matchUpdate", "mapStatUpdate"];
+    for (const event of events) GlobalEmitter.on(event, onChange);
+    req.on("close", () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      for (const event of events) GlobalEmitter.removeListener(event, onChange);
+      res.end();
+    });
+    await send();
+  } catch (err) {
+    if (res.headersSent) {
+      console.error("Match list stream failed:", err);
+      res.end();
+    } else {
+      next(err);
+    }
   }
 });
 

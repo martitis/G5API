@@ -4,6 +4,7 @@ import app from "../app.js";
 import { parseBackupList, safeRconArg, RconArgumentError } from "../src/utility/serverrcon.js";
 import Utils from "../src/utility/utils.js";
 import { buildMatchConfig, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
+import { buildSummary } from "../src/services/matchsummary.js";
 
 const request = agent(app);
 
@@ -245,5 +246,126 @@ describe("Utils.isSteamId64 / safeCompare", () => {
     expect(Utils.safeCompare("abc", undefined)).toBe(false);
     expect(Utils.safeCompare(undefined, undefined)).toBe(false);
     expect(Utils.safeCompare("undefined", undefined)).toBe(false);
+  });
+});
+
+describe("buildSummary (match list)", () => {
+  const match = (overrides = {}) => ({
+    id: 5,
+    user_id: 1,
+    owner_name: "Owner",
+    team1_id: 10,
+    team2_id: 20,
+    team1_string: "Alpha",
+    team2_string: "Bravo",
+    team1_score: 0,
+    team2_score: 0,
+    winner: null,
+    cancelled: 0,
+    forfeit: 0,
+    start_time: "2026-10-01T10:00:00.000Z",
+    end_time: null,
+    max_maps: 3,
+    title: null,
+    ip_string: "10.0.0.5",
+    port: 27015,
+    gotv_port: 27020,
+    server_name: "Box",
+    ...overrides
+  });
+  const map = (overrides = {}) => ({
+    map_number: 0,
+    map_name: "de_mirage",
+    team1_score: 0,
+    team2_score: 0,
+    winner: null,
+    end_time: null,
+    team1_side: "ct",
+    round_number: 0,
+    ...overrides
+  });
+  const now = new Date("2026-10-02T00:00:00.000Z");
+
+  it("is warmup while no map is running", () => {
+    const summary = buildSummary({ match: match(), maps: [], pause: null, canConnect: true, now });
+    expect(summary.status).toBe("warmup");
+    expect(summary.current_map).toBeNull();
+    expect(summary.server).toEqual({ name: "Box", ip: "10.0.0.5", port: 27015, gotv_port: 27020 });
+  });
+
+  it("shows the live map with its round score and sides, and maps already played", () => {
+    const summary = buildSummary({
+      match: match({ team1_score: 1 }),
+      maps: [
+        map({ map_number: 1, map_name: "de_nuke", team1_score: 9, team2_score: 7, team1_side: "t", round_number: 16 }),
+        map({ map_number: 0, team1_score: 13, team2_score: 9, winner: 10, end_time: "2026-10-01T11:00:00.000Z" })
+      ],
+      pause: null,
+      canConnect: false,
+      now
+    });
+    expect(summary.status).toBe("live");
+    expect(summary.current_map).toEqual({
+      number: 1,
+      name: "de_nuke",
+      team1_score: 9,
+      team2_score: 7,
+      round: 16,
+      team1_side: "t"
+    });
+    expect(summary.maps.map((m) => [m.number, m.winner, m.finished])).toEqual([
+      [0, 1, true],
+      [1, null, false]
+    ]);
+    expect(summary.team1.score).toBe(1);
+    // Not a participant: no server address.
+    expect(summary.server).toBeNull();
+  });
+
+  it("is paused when the pause row says so", () => {
+    const summary = buildSummary({
+      match: match(),
+      maps: [map()],
+      pause: { paused: 1, pause_type: "tech", team_paused: "Alpha" },
+      canConnect: true,
+      now
+    });
+    expect(summary.status).toBe("paused");
+    expect(summary.pause).toEqual({ type: "tech", team: "Alpha" });
+  });
+
+  it("reports the winner side of finished and forfeited matches, without connect info", () => {
+    const finished = buildSummary({
+      match: match({ end_time: "2026-10-01T12:00:00.000Z", winner: 20, team2_score: 2 }),
+      maps: [],
+      pause: null,
+      canConnect: true,
+      now
+    });
+    expect(finished.status).toBe("finished");
+    expect(finished.winner).toBe(2);
+    expect(finished.server).toBeNull();
+    const forfeit = buildSummary({ match: match({ forfeit: 1, winner: 10 }), maps: [], pause: null, canConnect: true, now });
+    expect(forfeit.status).toBe("finished");
+    expect(forfeit.forfeit).toBe(true);
+    expect(forfeit.winner).toBe(1);
+  });
+
+  it("knows cancelled and scheduled matches, and drops Get5 title templates", () => {
+    expect(buildSummary({ match: match({ cancelled: 1 }), maps: [], pause: null, canConnect: true, now }).status).toBe(
+      "cancelled"
+    );
+    const pending = buildSummary({
+      match: match({ start_time: "2026-10-05T00:00:00.000Z", title: "Map {MAPNUMBER} of {MAXMAPS}" }),
+      maps: [],
+      pause: null,
+      canConnect: true,
+      now
+    });
+    expect(pending.status).toBe("pending");
+    expect(pending.title).toBeNull();
+    expect(buildSummary({ match: match({ title: "Grand final" }), maps: [], pause: null, canConnect: true, now }).title).toBe(
+      "Grand final"
+    );
   });
 });

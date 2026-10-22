@@ -58,6 +58,12 @@ async function getPlayerTeamId(matchId: string, steamId: string | undefined): Pr
  * @class
  * Map flow service class for live games.
  */
+/** "ct" or "t" from a MatchZy side value ("ct", "t", "CT", ...), null when unknown. */
+const normalizeSide = (side: unknown): string | null => {
+  const value = typeof side === "string" ? side.toLowerCase() : "";
+  return value === "ct" || value === "t" ? value : null;
+};
+
 class MapFlowService {
   /**
    * Updates the database and emits mapStatUpdate when the map has gone live.
@@ -270,11 +276,42 @@ class MapFlowService {
       }
       GlobalEmitter.emit("playerStatsUpdate");
 
+      // Rounds played so far, from the score (doesn't depend on how MatchZy numbers rounds).
+      const roundsPlayed: number = (Number(event.team1.score) || 0) + (Number(event.team2.score) || 0);
+      const team1Side: string | null = normalizeSide(event.team1.side);
       await db.query("UPDATE map_stats SET ? WHERE id = ?", [
-        { team1_score: event.team1.score, team2_score: event.team2.score },
+        {
+          team1_score: event.team1.score,
+          team2_score: event.team2.score,
+          round_number: roundsPlayed,
+          team1_side: team1Side
+        },
         mapStat.id
       ]);
+      // Round history; a round replayed after a backup restore replaces its row.
+      if (roundsPlayed > 0) {
+        await db.query(
+          "INSERT INTO match_round (match_id, map_id, round_number, winner, winner_side, reason, team1_score, team2_score, round_time) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE winner = VALUES(winner), winner_side = VALUES(winner_side), reason = VALUES(reason), " +
+            "team1_score = VALUES(team1_score), team2_score = VALUES(team2_score), round_time = VALUES(round_time)",
+          [
+            event.matchid,
+            mapStat.id,
+            roundsPlayed,
+            event.winner?.team === "team1" || event.winner?.team === "team2" ? event.winner.team : null,
+            normalizeSide(event.winner?.side),
+            Number.isFinite(Number(event.reason)) ? Number(event.reason) : null,
+            event.team1.score,
+            event.team2.score,
+            Number.isFinite(Number(event.round_time)) ? Number(event.round_time) : null
+          ]
+        );
+        // A restore to an earlier round drops the rounds after it.
+        await db.query("DELETE FROM match_round WHERE map_id = ? AND round_number > ?", [mapStat.id, roundsPlayed]);
+      }
       GlobalEmitter.emit("mapStatUpdate");
+      GlobalEmitter.emit("matchUpdate");
 
       // Live Challonge scores for BO1s. A Challonge outage must not fail the round for the game server.
       sqlString = "SELECT max_maps, season_id FROM `match` WHERE id = ?";

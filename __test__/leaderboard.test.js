@@ -55,3 +55,26 @@ describe("Test the metrics route", () => {
       });
   });
 });
+
+describe("Test the match list summary route", () => {
+  it("Should return a page of summaries with a total.", () => {
+    return request
+      .get("/matches/summary?limit=5")
+      .expect(200)
+      .expect((result) => {
+        expect(Array.isArray(result.body.matches)).toBe(true);
+        expect(typeof result.body.total).toBe("number");
+        expect(result.body.matches.length).toBeLessThanOrEqual(5);
+        for (const match of result.body.matches) {
+          expect(["pending", "warmup", "live", "paused", "finished", "cancelled"]).toContain(match.status);
+          expect(Array.isArray(match.maps)).toBe(true);
+          expect(typeof match.team1.score).toBe("number");
+        }
+      });
+  });
+  it("Should apply the status filter and clamp the limit.", async () => {
+    const cancelled = await request.get("/matches/summary?status=cancelled&limit=1000").expect(200);
+    for (const match of cancelled.body.matches) expect(match.status).toBe("cancelled");
+    expect(cancelled.body.matches.length).toBeLessThanOrEqual(100);
+  });
+});
