@@ -186,7 +186,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   (pairing by record, no rematches, byes) in `services/bracket.ts` (unit tested); tables tournament,
   tournament_team, tournament_match; slot matches via `POST /matches` + `tournament_match_id`; brackets advance on
   series_end/forfeit/cancel; bracket view, standings, "Start ready matches" on free servers
-  - [ ] Challonge as an optional sync target for tournaments (today Challonge sync is per season)
+  - [x] Challonge as an optional sync target for tournaments (`settings.challonge_url`; reported with the
+    tournament owner's key, season link otherwise). Not tested against Challonge itself (needs an API key)
   - [x] live bracket updates over SSE (`GET /tournaments/:id/stream`: tournament writes and match updates)
 - [x] **5.4 PUG queue (opt-in at creation):** team mode on create match; `pug_queue` / `pug_queue_player`; join (Steam
   verified, one queue at a time), leave, ready check with timeout sweep, formation random / balanced (exhaustive up
