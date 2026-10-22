@@ -10,8 +10,8 @@ import rateLimit from "express-rate-limit";
 import session from "express-session";
 import helmet from "helmet";
 import createError from "http-errors";
-import logger from "morgan";
 import morgan from "morgan";
+import { pinoHttp } from "pino-http";
 import { createClient } from "redis";
 import swaggerJSDoc from "swagger-jsdoc";
 
@@ -43,6 +43,8 @@ import vetoesRouter from "./src/routes/vetoes.js";
 import vetosidesRouter from "./src/routes/vetosides.js";
 import passport from "./src/utility/auth.js";
 import Utils from "./src/utility/utils.js";
+import logger from "./src/utility/logger.js";
+import { db } from "./src/services/db.js";
 import {router as v2Router} from "./src/routes/v2/api.js";
 import {router as v2DemoRouter} from "./src/routes/v2/demoapi.js";
 import { router as v2BackupRouter } from "./src/routes/v2/backupapi.js";
@@ -59,7 +61,33 @@ app.set("trust proxy", 1);
 // Cross-origin resource policy stays open so the panel (often on another origin) can show logos.
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
-app.use(logger("dev"));
+// HTTP request log: readable lines while developing, JSON (pino) otherwise; none during tests.
+if (app.get("env") === "development") app.use(morgan("dev"));
+else if (app.get("env") !== "test") app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === "/health" } }));
+
+/**
+ * @swagger
+ *
+ * /health:
+ *   get:
+ *     description: Liveness and database check for load balancers and uptime monitors. No session, no auth.
+ *     tags:
+ *       - health
+ *     responses:
+ *       200:
+ *         description: "{ status: 'ok', db: true, uptime_s }"
+ *       503:
+ *         description: "{ status: 'error', db: false } - the database doesn't answer"
+ */
+app.get("/health", async (req, res) => {
+  try {
+    await db.query("SELECT 1");
+    res.json({ status: "ok", db: true, uptime_s: Math.round(process.uptime()) });
+  } catch (err) {
+    logger.error({ err }, "Health check: database unreachable");
+    res.status(503).json({ status: "error", db: false });
+  }
+});
 // Raw bodies are only accepted on the upload routes; demos are large, round backups are small JSON files.
 app.use("/v2/demo", express.raw({ type: "application/octet-stream", limit: "2gb" }));
 app.use("/v2/backup", express.raw({ type: "application/octet-stream", limit: "20mb" }));
@@ -145,9 +173,6 @@ app.use(
   })
 );
 
-// adding morgan to log HTTP requests
-app.use(morgan("combined"));
-
 // Server-sent event streams: a comment line every 25s keeps idle connections open through nginx/Caddy and
 // browsers. SSE clients ignore comment lines.
 app.use((req, res, next) => {
@@ -174,7 +199,8 @@ const options = {
   apis: [
     "./dist/src/routes/**/*.js",
     "./dist/src/services/**/*.js",
-    "./dist/src/routes/*.js"
+    "./dist/src/routes/*.js",
+    "./dist/app.js"
   ]
 };
 const swaggerSpec = swaggerJSDoc(options);
@@ -302,7 +328,7 @@ app.use(function (req, res, next) {
 // error handler: details go to the log, clients only get a generic message for server errors.
 app.use(function (err: any, req: any, res: any, next: any) {
   const status: number = err.status || err.statusCode || 500;
-  if (status >= 500) console.error(err);
+  if (status >= 500) logger.error({ err, method: req.method, url: req.originalUrl }, "Request failed");
   if (res.headersSent) return next(err);
   res.status(status);
   res.json({
@@ -313,7 +339,7 @@ app.use(function (err: any, req: any, res: any, next: any) {
 
 // Log instead of crashing the process on a stray async error.
 process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled promise rejection:", reason);
+  logger.error({ err: reason }, "Unhandled promise rejection");
 });
 
 export default app;

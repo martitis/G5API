@@ -38,6 +38,8 @@ All scripts are cross-platform (cross-env plus `scripts/test-admin.mjs`, no sed/
   (`PUT /users`, `roles_from_config = 0`) survive logins. Only admins (admin or super admin) can create matches.
 - The mock Steam login (every visitor becomes the test user) needs `NODE_ENV=test` **and** `G5API_MOCK_AUTH=1`;
   the jest configs set both.
+- Logging: `src/utility/logger.ts` (pino, JSON; `LOG_LEVEL`). HTTP requests are logged by morgan in development and
+  pino-http in production. `GET /health` checks the DB (503 when it's down) for uptime monitors.
 - Deployment: bare Node + pm2 behind nginx/Caddy. SSE routes need `proxy_buffering off` and long timeouts.
 
 ## Layout

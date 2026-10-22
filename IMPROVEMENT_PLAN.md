@@ -249,7 +249,10 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [ ] **Game server requirements** to document: MatchZy with PR #422 (merged into MatchZy `dev` on 2026-10-18) for
   round backups on CS2 1.41.9.1; possibly the `-allow_round_backup_files` launch flag; `apiURL` reachable from the
   game server (matches keep the URLs they were loaded with)
-- [ ] pino logging; `/health`
+- [x] `/health` (DB check, 503 when down, no session); pino logger (`utility/logger.ts`, redacts auth headers and
+  cookies) for HTTP logs in production, the error handler and unhandled rejections; morgan once in development
+  (it ran twice); no HTTP log in tests
+- [ ] Move the remaining `console.*` calls (95 in `src/`) to the logger, file by file
 - [ ] Rotate the Steam API key leaked in upstream history (`1916f7b`, `4ff0e1e`) if still used
 - [x] MockStrategy only with NODE_ENV=test **and** `G5API_MOCK_AUTH=1` (set in the jest configs)
 - [ ] `docker-compose.yml` still pulls upstream's image (from Phase 0)

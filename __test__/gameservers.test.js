@@ -187,4 +187,7 @@ describe("Test the game server routes.", () => {
       .send([{ ip_string: "10.0.0.9", port: 27015, rcon_password: "x", display_name: "Bad", join_password: "pass word;quit" }])
       .expect(412);
   });
+  it("Should report health with a working database.", () => {
+    return request.get("/health").expect(200).expect((result) => expect(result.body).toMatchObject({ status: "ok", db: true }));
+  });
 });
