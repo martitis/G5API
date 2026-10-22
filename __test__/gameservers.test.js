@@ -166,4 +166,18 @@ describe("Test the game server routes.", () => {
         expect(result.body.message).toMatch(/not authorized/);
       });
   });
+  it("Should reject an unknown practice action.", () => {
+    return request
+      .post("/servers/2/practice")
+      .set("Content-Type", "application/json")
+      .send([{ action: "restart" }])
+      .expect(412);
+  });
+  it("Should not start practice mode on a missing server.", () => {
+    return request
+      .post("/servers/999/practice")
+      .set("Content-Type", "application/json")
+      .send([{ action: "start" }])
+      .expect(404);
+  });
 });

@@ -94,13 +94,13 @@ router.get("/", Utils.ensureAuthenticated, async (req, res, next) => {
     let sql: string;
     if (req.user && Utils.superAdminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id";
     } else if (req.user && Utils.adminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port  FROM game_server gs, user usr WHERE usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id";
     } else {
       sql =
-        "SELECT gs.id, gs.in_use, gs.display_name, usr.name, gs.public_server, gs.flag FROM game_server gs, user usr WHERE gs.public_server=1 AND usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.display_name, usr.name, gs.public_server, gs.flag FROM game_server gs, user usr WHERE gs.public_server=1 AND usr.id = gs.user_id";
     }
     let servers: RowDataPacket[] = await db.query(sql);
     res.json({ servers });
@@ -224,7 +224,7 @@ router.get("/myservers", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     // Check if admin, if they are use this query.
     let sql: string =
-      "SELECT gs.id, gs.in_use, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND usr.id=?";
+      "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND usr.id=?";
     let servers: RowDataPacket[] = await db.query(sql, [req.user?.id]);
     res.json({ servers });
   } catch (err) {
@@ -272,11 +272,11 @@ router.get("/:server_id", Utils.ensureAuthenticated, async (req, res, next) => {
     let server: RowDataPacket[];
     if (req.user && Utils.superAdminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ?";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ?";
       server = await db.query(sql, [serverID]);
     } else {
       sql =
-        "SELECT gs.id, gs.in_use, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ? AND usr.id = ?";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ? AND usr.id = ?";
       server = await db.query(sql, [serverID, req.user?.id]);
     }
     if (server.length < 1) {
@@ -424,6 +424,97 @@ router.get(
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: (err as Error).toString() });
+    }
+  }
+);
+
+/**
+ * @swagger
+ *
+ * /servers/:server_id/practice:
+ *   post:
+ *     description: >
+ *       Starts (css_prac) or stops (css_exitprac) MatchZy practice mode. Body - action ("start" or "stop"). Starting
+ *       needs a free server and marks it in use, so no match is loaded onto it; stopping frees it. Owner, super admin,
+ *       or an admin on a public server.
+ *     tags:
+ *       - servers
+ *     responses:
+ *       200:
+ *         description: "{ message, response } - response is the server's RCON reply"
+ *       403:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         description: The server is in use (start) or not in practice mode (stop).
+ */
+router.post(
+  "/:server_id/practice",
+  Utils.ensureAuthenticated,
+  audited("server.practice", {
+    target: (req) => ({ type: "server", id: Number(req.params.server_id) || null }),
+    detail: (req) => String(firstBody(req).action ?? "")
+  }),
+  async (req, res, next) => {
+    try {
+      const action = firstBody(req).action;
+      if (action !== "start" && action !== "stop") {
+        res.status(412).json({ message: 'Action must be "start" or "stop".' });
+        return;
+      }
+      const rows: RowDataPacket[] = await db.query(
+        "SELECT id, user_id, ip_string, port, rcon_password, public_server, in_use, practice_mode FROM game_server WHERE id = ?",
+        [parseInt(req.params.server_id)]
+      );
+      if (!rows.length) {
+        res.status(404).json({ message: "Server not found." });
+        return;
+      }
+      const server = rows[0];
+      const allowed =
+        server.user_id == req.user!.id ||
+        Utils.superAdminCheck(req.user!) ||
+        (Boolean(server.public_server) && Utils.adminCheck(req.user!));
+      if (!allowed) {
+        res.status(403).json({ message: "User is not authorized to perform action." });
+        return;
+      }
+      const gameServer = new GameServer(server.ip_string, server.port, server.rcon_password);
+      if (action === "start") {
+        // Claim the server first, so a match can't be loaded onto it in between.
+        const claim: any = await db.query(
+          "UPDATE game_server SET in_use = 1, practice_mode = 1 WHERE id = ? AND in_use = 0",
+          [server.id]
+        );
+        if (!claim.affectedRows) {
+          res.status(409).json({ message: "The server is in use." });
+          return;
+        }
+        try {
+          const response = await gameServer.sendRconCommand("css_prac");
+          res.json({ message: "Practice mode started.", response });
+        } catch {
+          await db.query("UPDATE game_server SET in_use = 0, practice_mode = 0 WHERE id = ?", [server.id]);
+          res.status(502).json({ message: "The server did not respond. Check that it is online and the RCON password is correct." });
+        }
+        return;
+      }
+      if (!server.practice_mode) {
+        res.status(409).json({ message: "The server is not in practice mode." });
+        return;
+      }
+      let response = "";
+      try {
+        response = await gameServer.sendRconCommand("css_exitprac");
+      } catch {
+        // Freed anyway: an offline server is not practicing any more.
+        response = "The server did not respond.";
+      }
+      await db.query("UPDATE game_server SET in_use = 0, practice_mode = 0 WHERE id = ?", [server.id]);
+      res.json({ message: "Practice mode stopped.", response });
+    } catch (err) {
+      next(err);
     }
   }
 );
