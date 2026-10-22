@@ -14,8 +14,19 @@ import {
   startTournament
 } from "../services/tournaments.js";
 import type { TournamentFormat } from "../services/bracket.js";
+import GlobalEmitter from "../utility/emitter.js";
 
 const router = Router();
+
+// Every successful change reaches open bracket pages (GET /tournaments/:id/stream).
+router.use((req, res, next) => {
+  if (req.method !== "GET") {
+    res.on("finish", () => {
+      if (res.statusCode < 400) GlobalEmitter.emit("tournamentUpdate");
+    });
+  }
+  next();
+});
 
 /** The tournament row, or a response already sent (404 / 403). Owners and super admins may change it. */
 async function editableTournament(req: any, res: any): Promise<RowDataPacket | null> {
@@ -111,6 +122,61 @@ router.get("/:tournament_id", async (req, res, next) => {
       return;
     }
     res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /tournaments/:tournament_id/stream:
+ *   get:
+ *     description: >
+ *       Server sent events - "tournament" with the same data as GET /tournaments/:tournament_id, on every bracket
+ *       change and match update (at most once a second).
+ *     produces:
+ *       - text/event-stream
+ *     tags:
+ *       - tournaments
+ */
+router.get("/:tournament_id/stream", async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.tournament_id) || 0;
+    const first = await loadTournament(id);
+    if (!first) {
+      res.status(404).json({ message: "Tournament not found." });
+      return;
+    }
+    res.set({
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Content-Type": "text/event-stream",
+      "X-Accel-Buffering": "no"
+    });
+    res.flushHeaders();
+    let closed = false;
+    const send = (data: unknown) => {
+      if (!closed && data) res.write(`event: tournament\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    let timer: NodeJS.Timeout | null = null;
+    const onChange = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        loadTournament(id).then(send).catch((err) => console.error("Tournament stream failed:", err));
+      }, 1000);
+    };
+    GlobalEmitter.on("tournamentUpdate", onChange);
+    GlobalEmitter.on("matchUpdate", onChange);
+    req.on("close", () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      GlobalEmitter.removeListener("tournamentUpdate", onChange);
+      GlobalEmitter.removeListener("matchUpdate", onChange);
+      res.end();
+    });
+    send(first);
   } catch (err) {
     next(err);
   }

@@ -240,6 +240,7 @@ describe("Test the matches routes", () => {
     });
     it("Should start it with one ready final between the seeds.", async () => {
       await request.post(`/tournaments/${tournamentId}/start`).expect(200);
+      await request.get("/tournaments/99999/stream").expect(404);
       const result = await request.get(`/tournaments/${tournamentId}`).expect(200);
       expect(result.body.tournament.status).toBe("running");
       expect(result.body.nodes).toHaveLength(1);
