@@ -144,7 +144,11 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   and players together; bulk add (paste many Steam IDs / profile links, split into separate players); Steam name
   and avatar preview via `POST /teams/members/resolve`; one Save writes info, added/changed and removed players;
   `/teams/create` opens the dialog on the teams list. Also: copy-connect button in match list rows
-- [ ] **5.1 Live match view:** (`match_round` table and `/matches/:id/live/stream` done) round history, kill feed, bomb markers, pause banner, demo status, `/matches/:id/live/stream`
+- [x] **5.1 Live match view:** round history strip per map (winner lane, CT/T colour, end reason, plant marker,
+  halftime), kill feed, pause banner, demo status; `match_round` (+ `event_round`), `map_stats.demo_status`,
+  `GET /matches/:id/timeline`, rounds/kills/bombs/pause on `/matches/:id/live/stream`. Fixed: MatchZy's
+  `winner.side` is "3"/"2" and teams carry no side, so sides were never stored
+  - [ ] ready status per player (needs MatchZy ready events or polling `get5_status`)
 - [ ] **5.2 Admin panel** `/admin`: users and roles, servers, live matches, audit log, config preview
 - [ ] **5.3 Tournament tooling:** tournament/stage/bracket tables; SE/DE/RR/Swiss; auto-advance on series_end; auto server assign; bracket UI; Challonge optional
 - [ ] **5.4 PUG queue (opt-in at creation):**
