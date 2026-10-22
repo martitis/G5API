@@ -108,7 +108,9 @@ describe("Routes refuse anonymous and malformed requests before touching the dat
     ["delete", "/playerstatsextra"],
     ["get", "/servers/1/rcon"],
     ["post", "/matches/1/cancel"],
-    ["post", "/matches/1/pause"]
+    ["post", "/matches/1/pause"],
+    ["post", "/matches"],
+    ["post", "/teams/members/resolve"]
   ])("%s %s without login gives 401 JSON", (method, path) => {
     return request[method](path)
       .send([{ season_id: 1, match_id: 1 }])

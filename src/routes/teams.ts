@@ -111,7 +111,7 @@ import { AuthData } from "../types/teams/AuthData.js";
  */
 router.get("/", async (req, res) => {
   try {
-    let sql: string =
+    const sql: string =
       "SELECT usr.name as owner, t.id, t.user_id, t.name, t.flag, t.logo, t.tag, t.public_team, " +
       "CONCAT('{', GROUP_CONCAT( DISTINCT CONCAT('\"',ta.auth, '\"', ': " +
       "{ \"name\": ', CAST(JSON_QUOTE(ta.name) AS CHAR CHARACTER SET utf8mb4), ', \"captain\": ', ta.captain, ', \"coach\": ', ta.coach, '}') ORDER BY ta.captain desc, ta.id  SEPARATOR ', '), '}') as auth_name " +
@@ -165,7 +165,7 @@ router.get("/", async (req, res) => {
  */
 router.get("/myteams", Utils.ensureAuthenticated, async (req, res) => {
   try {
-    let sql: string =
+    const sql: string =
       "SELECT usr.name as owner, t.id, t.user_id, t.name, t.flag, t.logo, t.tag, t.public_team, " +
       "CONCAT('{', GROUP_CONCAT( DISTINCT CONCAT('\"',ta.auth, '\"', ': " +
       "{ \"name\": ', CAST(JSON_QUOTE(ta.name) AS CHAR CHARACTER SET utf8mb4), ', \"captain\": ', ta.captain, ', \"coach\": ', ta.coach, '}') ORDER BY ta.captain desc, ta.id  SEPARATOR ', '), '}') as auth_name " +
@@ -766,6 +766,61 @@ router.get("/:team_id/result/:match_id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: (err as Error).toString() });
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /teams/members/resolve:
+ *   post:
+ *     description: >
+ *       Resolves Steam identifiers (SteamID64, STEAM_x:y:z, [U:1:n], profile or vanity URLs) to SteamID64s with
+ *       their Steam name and avatar, so the panel can preview players before saving a team. Up to 50 per request.
+ *     produces:
+ *       - application/json
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: array
+ *             items:
+ *               type: object
+ *               properties:
+ *                 ids:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *     tags:
+ *       - teams
+ *     responses:
+ *       200:
+ *         description: >
+ *           One entry per input, in order - { input, steam_id, name, image }; steam_id is null when the input is not
+ *           a Steam account.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       412:
+ *         description: No ids, or more than 50.
+ */
+router.post("/members/resolve", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    const ids: unknown = req.body?.[0]?.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 50 || !ids.every((id) => typeof id === "string")) {
+      res.status(412).json({ message: "Provide between 1 and 50 Steam identifiers." });
+      return;
+    }
+    const members = await Promise.all(
+      ids.map(async (input) => {
+        const steamId: string = await Utils.getSteamPID(input.slice(0, 200));
+        const profile = steamId ? await Utils.getSteamProfile(steamId) : null;
+        return { input, steam_id: steamId || null, name: profile?.name ?? null, image: profile?.image ?? null };
+      })
+    );
+    res.json({ members });
+  } catch (err) {
+    next(err);
   }
 });
 

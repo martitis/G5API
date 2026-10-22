@@ -240,4 +240,24 @@ describe("Test the team routes", () => {
         expect(result.body.message).toMatch(/does not exist/);
       });
   });
+  it("Should resolve pasted Steam identifiers one by one, in order.", () => {
+    return request
+      .post("/teams/members/resolve")
+      .set("Content-Type", "application/json")
+      .send([{ ids: ["76561198025644201", "STEAM_0:1:32689236", "!!not a steam id!!"] }])
+      .expect(200)
+      .expect((result) => {
+        const [first, second, third] = result.body.members;
+        expect(first).toMatchObject({ input: "76561198025644201", steam_id: "76561198025644201" });
+        expect(second.steam_id).toMatch(/^7656\d{13}$/);
+        expect(third).toMatchObject({ input: "!!not a steam id!!", steam_id: null });
+      });
+  });
+  it("Should refuse an empty or oversized resolve request.", async () => {
+    await request.post("/teams/members/resolve").send([{ ids: [] }]).expect(412);
+    await request
+      .post("/teams/members/resolve")
+      .send([{ ids: Array.from({ length: 51 }, (_, n) => String(76561198000000000 + n)) }])
+      .expect(412);
+  });
 });

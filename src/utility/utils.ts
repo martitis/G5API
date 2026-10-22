@@ -339,6 +339,22 @@ class Utils {
     }
   }
 
+  /** Name and medium avatar of a Steam account in one request (null when Steam can't be asked).
+   * @function
+   * @memberof module:utils
+   * @inner
+   * @name getSteamProfile
+   * @param {String} auth64 - String value of a steam 64 ID.
+   */
+  static async getSteamProfile(auth64: string): Promise<{ name: string; image: string } | null> {
+    try {
+      const summary = (await steam.getUserSummary(auth64)) as { nickname: string; avatar: { medium: string } };
+      return { name: summary.nickname, image: summary.avatar.medium };
+    } catch {
+      return null;
+    }
+  }
+
   /** Retrieves a profile image from steam.
    * @function
    * @memberof module:utils
