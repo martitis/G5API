@@ -213,7 +213,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
     PR #422 (CS2 1.41.9.1 rejects MatchZy's absolute round-backup paths, so no round files are written; see Phase 6)
   - [ ] connected players panel (kick, move team, late sub): CS2's `status` doesn't list Steam IDs, so this needs
     another source (MatchZy player events or a plugin command); moving a player = `matchzy_removeplayer` + `addplayer`
-  - [ ] match presets (Official/Scrim/PUG) and user templates
+  - [x] match presets (Official/Scrim/PUG, cvars MatchZy accepts in a config) and user templates (`match_template`,
+    `/templates`) on create match
   - [ ] scheduled auto-load + no-show warning
   - [ ] practice-mode launcher for a free server (`css_prac` / `css_exitprac`)
 - [ ] **5.6 Fun/community (optional):** match awards, highlights feed, player profiles 2.0 + achievements, Elo/OpenSkill, Discord webhooks, pick'em, OBS overlay, live widget, hall of fame, fun presets
