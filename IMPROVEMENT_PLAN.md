@@ -159,7 +159,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   and players together; bulk add (paste many Steam IDs / profile links, split into separate players); Steam name
   and avatar preview via `POST /teams/members/resolve`; one Save writes info, added/changed and removed players;
   `/teams/create` opens the dialog on the teams list. Also: copy-connect button in match list rows
-- [ ] **5.0c Navigation and search cleanup** (user request, reviewed 2026-10-22):
+- [x] **5.0c Navigation and search cleanup** (user request, reviewed and done 2026-10-22):
   - sidebar duplicates to remove: "Add server" (same dialog as on the servers page, and it reloads the whole page with
     `router.go(0)`), "Create team" (only redirects to the teams list dialog), "Create match" (button on Matches);
     create/add actions live only on their lists
