@@ -212,8 +212,10 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   - [x] server health card (`GET /matches/:id/server/status`: RCON reachable + get5_status); RCON console with history
   - [ ] restore by round from `match_round` (`css_restore N`). **Blocked** until the server runs a MatchZy build with
     PR #422 (CS2 1.41.9.1 rejects MatchZy's absolute round-backup paths, so no round files are written; see Phase 6)
-  - [ ] connected players panel (kick, move team, late sub): CS2's `status` doesn't list Steam IDs, so this needs
-    another source (MatchZy player events or a plugin command); moving a player = `matchzy_removeplayer` + `addplayer`
+  - [x] connected players panel (`GET /matches/:id/server/players` from CS2's `status`, `parseStatusPlayers` unit
+    tested; kick via `POST /server/kick` = `kickid`). Move team / late sub stay in the match menu (by Steam ID),
+    since `status` has no Steam IDs. **Check against a live server:** the `status` row format was written from
+    known CS2 output, not captured from this server
   - [x] match presets (Official/Scrim/PUG, cvars MatchZy accepts in a config) and user templates (`match_template`,
     `/templates`) on create match
   - [x] scheduled matches (`scheduled_match`, `/scheduled`, 30 s sweep; any free server at that time; failed runs
