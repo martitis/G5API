@@ -218,7 +218,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
     `/templates`) on create match
   - [x] scheduled matches (`scheduled_match`, `/scheduled`, 30 s sweep; any free server at that time; failed runs
     keep the reason and can be retried) on create match; no-show chip/warning after 10 minutes waiting for players
-  - [ ] practice-mode launcher for a free server (`css_prac` / `css_exitprac`)
+  - [x] practice-mode launcher (`POST /servers/:id/practice`, `game_server.practice_mode`; the server counts as in
+    use while practicing) on the servers page
 - [ ] **5.6 Fun/community (optional):** match awards, highlights feed, player profiles 2.0 + achievements, Elo/OpenSkill, Discord webhooks, pick'em, OBS overlay, live widget, hall of fame, fun presets
 - [ ] **5.7 Small:**
   - [x] GOTV link (match page and match list rows)
