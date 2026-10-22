@@ -58,7 +58,9 @@ Last reviewed against the code: 2026-10-22.
 - [x] `__test__/unit.test.js` (no DB): parser, sanitizers, cvars, auth/404/upload checks. Run with `yarn test:unit`
 - [x] ~~Enforce `private_match` on reads~~: dropped (decision: no private matches). The match list summary still hides
   `private_match` rows from outsiders; the match page and old list routes don't check it
-- [ ] `public_team` on team reads; per-server cvar whitelist for public servers
+- [x] ~~`public_team` on team reads; per-server cvar whitelist for public servers~~: dropped after the decision that
+  only admins create matches. `public_team` means "others may use this team", not "hidden" (names show on every
+  match page), and cvars are validated (`Utils.validateCvars`) for the admins who can set them
 - [x] The 66 route handlers that answered `err.toString()` now call `next(err)` (the global handler logs and sends
   a generic message)
 
