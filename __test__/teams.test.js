@@ -1,5 +1,7 @@
 import { agent } from 'supertest';
 import app from '../app.js';
+import { importParticipants } from '../src/services/challonge.js';
+import { db } from '../src/services/db.js';
 const request = agent(app);
 
 describe("Test the team routes", () => {
@@ -259,5 +261,19 @@ describe("Test the team routes", () => {
       .post("/teams/members/resolve")
       .send([{ ids: Array.from({ length: 51 }, (_, n) => String(76561198000000000 + n)) }])
       .expect(412);
+  });
+  it('Should import Challonge participants once and roll back a failed import.', async () => {
+    const participant = (id, name, fields) => ({ participant: { id, display_name: name, custom_field_response: fields } });
+    // Raw Steam IDs only: other values are looked up as vanity URLs on the Steam API.
+    const first = await importParticipants(1, [participant(990001, 'Imported A', { a: '76561198000000101' })]);
+    expect(first).toEqual({ imported: 1, updated: 0, skipped: [] });
+    const again = await importParticipants(1, [participant(990001, 'Imported A2', {})]);
+    expect(again.updated).toBe(1);
+    // The second participant's id isn't a number, so the whole batch is rolled back.
+    await expect(
+      importParticipants(1, [participant(990002, 'Rolled back', {}), participant('broken', 'Broken', {})])
+    ).rejects.toThrow();
+    const rows = await db.query('SELECT name FROM team WHERE challonge_team_id IN (990001, 990002) ORDER BY name');
+    expect(rows.map((row) => row.name)).toEqual(['Imported A2']);
   });
 });

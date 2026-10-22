@@ -29,6 +29,9 @@ connPool.on("connection", (conn) => {
   });
 });
 
+/** A query bound to one transaction (see Database.transaction). */
+export type TransactionQuery = (sql: string, args?: object) => Promise<RowDataPacket[]>;
+
 class Database {
   constructor() {
     this.setupAdmins();
@@ -43,7 +46,27 @@ class Database {
       throw error;
     }
   }
-  
+
+  /**
+   * Runs `work` in one transaction on one connection: committed when it resolves, rolled back when it throws.
+   * @param work - Gets a query function with the same shape as db.query, bound to the transaction.
+   */
+  async transaction<T>(work: (query: TransactionQuery) => Promise<T>): Promise<T> {
+    const conn = await connPool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const query: TransactionQuery = async (sql, args) => (await conn.query<RowDataPacket[]>(sql, args))[0];
+      const result = await work(query);
+      await conn.commit();
+      return result;
+    } catch (error) {
+      await conn.rollback().catch(() => undefined);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
   async buildUpdateStatement(objValues: IStringIndex): Promise<IStringIndex> {
     for (const key in objValues) {
       if (objValues[key] == null || objValues[key] == undefined) delete objValues[key];

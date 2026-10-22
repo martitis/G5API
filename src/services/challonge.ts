@@ -8,7 +8,7 @@ import Utils from "../utility/utils.js";
 /** Database module.
  * @const
  */
-import {db} from "../services/db.js";
+import { db, type TransactionQuery } from "../services/db.js";
 
 
 /**
@@ -159,26 +159,43 @@ export type ChallongeParticipant = {
  * @param {number} userId - Owner of the imported teams.
  * @param {ChallongeParticipant[]} participants - From /participants.json or a tournament's participants.
  * @returns How many teams were created and updated, and the skipped custom field values.
+ * Runs in one transaction: a failure part way leaves no half-imported teams.
  */
 export async function importParticipants(
   userId: number,
   participants: ChallongeParticipant[]
+): Promise<{ imported: number; updated: number; skipped: string[] }> {
+  // Steam ID lookups (vanity URLs) happen before the transaction, so it doesn't wait on the Steam API.
+  const steamIds = new Map<string, string>();
+  for (const team of participants) {
+    for (const value of Object.values(team.participant.custom_field_response ?? {})) {
+      if (value && !steamIds.has(String(value))) steamIds.set(String(value), await Utils.getSteamPID(String(value)));
+    }
+  }
+  return db.transaction((query) => importInTransaction(query, userId, participants, steamIds));
+}
+
+async function importInTransaction(
+  query: TransactionQuery,
+  userId: number,
+  participants: ChallongeParticipant[],
+  steamIds: Map<string, string>
 ): Promise<{ imported: number; updated: number; skipped: string[] }> {
   let imported: number = 0;
   const skipped: string[] = [];
   for (const team of participants) {
     const displayName: string = String(team.participant.display_name ?? "").substring(0, 40);
     const challongeTeamId: number = team.participant.id;
-    const existing: RowDataPacket[] = await db.query(
+    const existing: RowDataPacket[] = await query(
       "SELECT id FROM team WHERE user_id = ? AND challonge_team_id = ?",
       [userId, challongeTeamId]
     );
     let teamId: number;
     if (existing.length) {
       teamId = existing[0].id;
-      await db.query("UPDATE team SET name = ?, tag = ? WHERE id = ?", [displayName, displayName, teamId]);
+      await query("UPDATE team SET name = ?, tag = ? WHERE id = ?", [displayName, displayName, teamId]);
     } else {
-      const insertResult: any = await db.query(
+      const insertResult: any = await query(
         "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES (?, ?, ?, ?)",
         [userId, displayName, displayName, challongeTeamId]
       );
@@ -188,17 +205,17 @@ export async function importParticipants(
     let isFirstPlayer: boolean = true;
     for (const value of Object.values(team.participant.custom_field_response ?? {})) {
       if (!value) continue;
-      const steamId: string = await Utils.getSteamPID(String(value));
+      const steamId: string = steamIds.get(String(value)) ?? "";
       if (!steamId) {
         skipped.push(String(value));
         continue;
       }
-      const member: RowDataPacket[] = await db.query(
+      const member: RowDataPacket[] = await query(
         "SELECT id FROM team_auth_names WHERE team_id = ? AND auth = ?",
         [teamId, steamId]
       );
       if (!member.length) {
-        await db.query(
+        await query(
           "INSERT INTO team_auth_names (team_id, auth, name, captain) VALUES (?, ?, ?, ?)",
           [teamId, steamId, "", isFirstPlayer ? 1 : 0]
         );

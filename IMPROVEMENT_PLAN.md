@@ -114,7 +114,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 ### Challonge (`teams.ts` import, `services/challonge.ts`)
 - [x] Import: dedupe on `challonge_team_id`, `getSteamPID` conversion (non-Steam values skipped and reported), names set, encoded ids, 502 on Challonge errors
 - [x] Sync: no crashes on missing season/team/key/open match, draws reported as ties, finalize check and URL fixed
-- [ ] The import isn't wrapped in a DB transaction (the db wrapper has no transaction helper yet)
+- [x] The import runs in one transaction (`db.transaction()`); Steam ID lookups happen before it (tested: a failing
+  participant rolls back the batch)
 ### Cleanup / SSE
 - [x] `routes/legacy/api.ts` deleted; `yarn build` cleans `dist/`
 - [x] SSE: 25s heartbeat on every `/stream`, emitter listener cap removed
