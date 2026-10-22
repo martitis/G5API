@@ -91,13 +91,13 @@ class SeriesFlowService {
         );
       }
 
-      // Check if a match has a season ID and we're not cancelled.
+      // Challonge, when the match's tournament or season is linked to one.
       // A Challonge outage must not fail the series result for the game server.
-      if (matchInfo[0].season_id && !cancelled) {
+      if (!cancelled) {
         try {
           await update_challonge_match(
             event.matchid,
-            matchInfo[0].season_id,
+            matchInfo[0].season_id ?? null,
             matchInfo[0].team1_id,
             matchInfo[0].team2_id,
             matchInfo[0].max_maps,

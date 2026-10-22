@@ -6,6 +6,7 @@ import Utils from "../src/utility/utils.js";
 import { buildMatchConfig, callbackCvars, parseMapPool, MatchConfigError } from "../src/services/matchconfig.js";
 import { buildSummary } from "../src/services/matchsummary.js";
 import { normalizeSide } from "../src/services/mapflowservices.js";
+import { cleanSettings } from "../src/services/tournaments.js";
 import {
   doubleElimination,
   resolveBracket,
@@ -651,5 +652,13 @@ describe("parseStatusPlayers", () => {
 
   it("returns nothing without a players section", () => {
     expect(parseStatusPlayers("Unknown command\r\n")).toEqual([]);
+  });
+});
+
+describe("tournament settings", () => {
+  it("keeps a Challonge tournament id and drops anything that isn't one", () => {
+    expect(cleanSettings({ challonge_url: " sub-abc_123 " }).challonge_url).toBe("sub-abc_123");
+    expect(cleanSettings({ challonge_url: "../matches?x=1" }).challonge_url).toBeUndefined();
+    expect(cleanSettings({}).challonge_url).toBeUndefined();
   });
 });

@@ -25,13 +25,37 @@ function tournamentUrl(challongeUrl: string): string {
   return "https://api.challonge.com/v1/tournaments/" + encodeURIComponent(challongeUrl);
 }
 
+/** Where a match's results go: its tournament's Challonge link (tournament settings), else its season's. */
+async function challongeTarget(
+  match_id: number | string,
+  season_id: number | null
+): Promise<{ url: string; ownerId: number; seasonId: number | null } | null> {
+  const tournaments: RowDataPacket[] = await db.query(
+    "SELECT t.user_id, t.settings FROM tournament_match tm JOIN tournament t ON t.id = tm.tournament_id WHERE tm.match_id = ?",
+    [match_id]
+  );
+  for (const row of tournaments) {
+    let url: unknown;
+    try {
+      url = (JSON.parse(String(row.settings)) as { challonge_url?: unknown }).challonge_url;
+    } catch {
+      url = undefined;
+    }
+    if (typeof url === "string" && url) return { url, ownerId: row.user_id, seasonId: null };
+  }
+  if (!season_id) return null;
+  const seasons: RowDataPacket[] = await db.query("SELECT id, challonge_url, user_id FROM season WHERE id = ?", [season_id]);
+  if (!seasons[0]?.challonge_url) return null;
+  return { url: seasons[0].challonge_url, ownerId: seasons[0].user_id, seasonId: seasons[0].id };
+}
+
 /*** A PUT call to Challonge to update a match that is currently being played.
- * Does nothing when the season isn't linked to Challonge, the owner has no API key,
+ * Does nothing when neither the match's tournament nor its season is linked to Challonge, the owner has no API key,
  * a team isn't a Challonge participant, or there's no open Challonge match between the teams.
  * @function
  * @memberof module:services/challonge
  * @param {number} match_id - The internal ID of the match being played.
- * @param {number} season_id - The internal ID of the current season of the match being played.
+ * @param {number|null} season_id - The internal ID of the current season of the match being played, if any.
  * @param {number} team1_id - The internal team ID of the first team.
  * @param {number} team2_id - The internal team ID of the second team.
  * @param {number} num_maps - The number of maps in the current match.
@@ -40,26 +64,24 @@ function tournamentUrl(challongeUrl: string): string {
 export default
 async function update_challonge_match(
   match_id: number | string,
-  season_id: number,
+  season_id: number | null,
   team1_id: number,
   team2_id: number,
   num_maps: number,
   winner: string | null = null
 ): Promise<void> {
-  let sql: string =
-    "SELECT id, challonge_url, user_id FROM season WHERE id = ?";
-  const seasonInfo: RowDataPacket[] = await db.query(sql, [season_id]);
-  if (!seasonInfo[0]?.challonge_url) return;
-  const challongeUrl: string = seasonInfo[0].challonge_url;
+  const target = await challongeTarget(match_id, season_id);
+  if (!target) return;
+  const challongeUrl: string = target.url;
 
-  sql = "SELECT challonge_team_id FROM team WHERE id = ?";
+  let sql: string = "SELECT challonge_team_id FROM team WHERE id = ?";
   const team1ChallongeId = (await db.query(sql, [team1_id]))[0]?.challonge_team_id;
   const team2ChallongeId = (await db.query(sql, [team2_id]))[0]?.challonge_team_id;
   if (!team1ChallongeId || !team2ChallongeId) return;
 
-  // Results are reported with the season owner's API key.
+  // Results are reported with the tournament's or season's owner's API key.
   sql = "SELECT challonge_api_key FROM user WHERE id = ?";
-  const ownerKey: RowDataPacket[] = await db.query(sql, [seasonInfo[0].user_id]);
+  const ownerKey: RowDataPacket[] = await db.query(sql, [target.ownerId]);
   const decryptedKey: string | null | undefined = Utils.decrypt(ownerKey[0]?.challonge_api_key);
   if (!decryptedKey) return;
 
@@ -101,7 +123,7 @@ async function update_challonge_match(
     body: JSON.stringify(putBody)
   });
 
-  // Once a result is in and no match is left open, finalize the tournament and close the season.
+  // Once a result is in and no match is left open, finalize the Challonge tournament (and close the season).
   if (winner === null) return;
   const remainingResponse = await fetch(
     tournamentUrl(challongeUrl) + "/matches.json?api_key=" + encodeURIComponent(decryptedKey) + "&state=open"
@@ -112,12 +134,11 @@ async function update_challonge_match(
       tournamentUrl(challongeUrl) + "/finalize.json?api_key=" + encodeURIComponent(decryptedKey),
       { method: "POST" }
     );
-    sql = "UPDATE season SET end_date = ? WHERE id = ?";
-    await db.query(sql, [
-      new Date().toISOString().slice(0, 19).replace("T", " "),
-      seasonInfo[0].id
-    ]);
-    GlobalEmitter.emit("seasonUpdate");
+    if (target.seasonId) {
+      sql = "UPDATE season SET end_date = ? WHERE id = ?";
+      await db.query(sql, [new Date().toISOString().slice(0, 19).replace("T", " "), target.seasonId]);
+      GlobalEmitter.emit("seasonUpdate");
+    }
   }
 }
 

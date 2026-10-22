@@ -329,11 +329,11 @@ class MapFlowService {
       // Live Challonge scores for BO1s. A Challonge outage must not fail the round for the game server.
       sqlString = "SELECT max_maps, season_id FROM `match` WHERE id = ?";
       const matchSeasonInfo: RowDataPacket[] = await db.query(sqlString, [event.matchid]);
-      if (matchSeasonInfo[0]?.season_id && matchSeasonInfo[0].max_maps == 1) {
+      if (matchSeasonInfo[0]?.max_maps == 1) {
         try {
           await update_challonge_match(
             event.matchid,
-            matchSeasonInfo[0].season_id,
+            matchSeasonInfo[0].season_id ?? null,
             +event.team1.id,
             +event.team2.id,
             matchSeasonInfo[0].max_maps

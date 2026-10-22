@@ -190,7 +190,8 @@ router.get("/:tournament_id/stream", async (req, res, next) => {
  *     description: >
  *       Creates a tournament in draft. Admins only (they run the matches). Body - name, format
  *       (single_elim, double_elim, round_robin, swiss), season_id, team_ids (in seed order), settings
- *       (best_of, final_best_of, swiss_rounds, map_pool, players_per_team, min_players_to_ready, side_type, skip_veto).
+ *       (best_of, final_best_of, swiss_rounds, map_pool, players_per_team, min_players_to_ready, side_type, skip_veto,
+ *       challonge_url - a Challonge tournament id that results are reported to with your Challonge API key).
  *     produces:
  *       - application/json
  *     tags:

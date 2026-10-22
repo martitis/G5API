@@ -31,6 +31,8 @@ export interface TournamentSettings {
   min_players_to_ready: number;
   side_type: string;
   skip_veto: boolean;
+  /** Optional Challonge tournament (its URL id, e.g. "abc123" or "sub-abc123") that results are reported to. */
+  challonge_url?: string;
 }
 
 export const DEFAULT_SETTINGS: TournamentSettings = {
@@ -67,7 +69,11 @@ export function cleanSettings(input: unknown): TournamentSettings {
     side_type: ["standard", "never_knife", "always_knife"].includes(String(raw.side_type))
       ? String(raw.side_type)
       : DEFAULT_SETTINGS.side_type,
-    skip_veto: Boolean(raw.skip_veto)
+    skip_veto: Boolean(raw.skip_veto),
+    challonge_url:
+      typeof raw.challonge_url === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(raw.challonge_url.trim())
+        ? raw.challonge_url.trim()
+        : undefined
   };
 }
 
