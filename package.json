@@ -9,10 +9,10 @@
       "url": "http://opensource.org/licenses/MIT"
     }
   ],
-  "homepage": "https://github.com/martitis/G5API#readme",
+  "homepage": "https://github.com/martitis/G5API-newgen#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/martitis/G5API.git"
+    "url": "https://github.com/martitis/G5API-newgen.git"
   },
   "author": {
     "name": "martitis",
@@ -141,7 +141,7 @@
     "typescript-eslint": "8.70.1"
   },
   "bugs": {
-    "url": "https://github.com/martitis/G5API/issues"
+    "url": "https://github.com/martitis/G5API-newgen/issues"
   },
   "description": "Backend of a CS2 tournament panel that drives MatchZy: matches, live stats, teams, servers, tournaments and PUG queues."
 }

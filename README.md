@@ -1,4 +1,4 @@
-# G5API
+# G5API-newgen
 
 The backend of a CS2 tournament panel. It manages matches, teams, servers, seasons, tournaments and PUG queues,
 drives the [MatchZy](https://shobhit-pathak.github.io/MatchZy/) plugin over RCON, and keeps the stats MatchZy reports

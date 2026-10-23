@@ -1,4 +1,6 @@
-# G5API: backend for a CS2 tournament panel (MatchZy)
+# G5API-newgen: backend for a CS2 tournament panel (MatchZy)
+
+GitHub: `martitis/G5API-newgen` (renamed from G5API; the local folder is still `G5API`).
 
 Express/TypeScript API that manages CS2 matches, teams, servers, seasons and stats, and drives the
 **MatchZy** plugin over RCON. It started as a fork of the original Get5-era G5API (credited in README/LICENSE) and now **diverges

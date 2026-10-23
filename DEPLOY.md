@@ -11,7 +11,7 @@ The panel repo has matching proxy configs (`default.conf` for nginx, `Caddyfile`
 
 ## First install
 ```sh
-git clone https://github.com/martitis/G5API.git && cd G5API
+git clone https://github.com/martitis/G5API-newgen.git && cd G5API-newgen
 npx yarn@1.22.22 install --frozen-lockfile
 cp config/production.json.template config/production.json   # then fill it in (below)
 npx yarn@1.22.22 build

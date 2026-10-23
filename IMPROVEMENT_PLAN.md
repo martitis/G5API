@@ -293,7 +293,7 @@ State on 2026-10-23: **`development`** is the working branch in both repos (push
 - The old `../G5V-next` folder is a detached leftover worktree; delete it with `git worktree remove ../G5V-next`
   from `../G5V` when you no longer need it.
 - [x] Push `phase5-match-list` and `development` in both repos
-- [x] PRs opened 2026-10-23: martitis/G5API#9 and martitis/G5V-newgen#5 (`development` → `master`; merge G5API first or together)
+- [x] PRs opened 2026-10-23: martitis/G5API-newgen#9 and martitis/G5V-newgen#5 (`development` → `master`; merge G5API first or together)
 - [x] GitHub hardening (2026-10-23, both repos):
   - only `master` and `development` remain on GitHub; the other branches were deleted after being tagged `archive/<branch>`
     (restore one with `git push origin archive/<name>:refs/heads/<name>`)
