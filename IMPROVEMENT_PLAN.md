@@ -268,6 +268,13 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   - [x] **API startup catch-up:** the sweep's first pass runs straight away.
   - [x] Tests: assessment unit tests (ok / offline / interrupted / load grace / resync / two-strike rule) and an
     integration test with a fake `get5_status` (insert, stable-score rule, interrupted, dismiss, reload, clearing).
+- [x] **5.9 Local login and registration** (user request, 2026-10-23):
+  - one Sign in dialog: Sign in with Steam first, then Sign in / Create account tabs, with errors shown in the form
+  - shared username/password rules (`utility/credentials.ts`)
+  - registration accepts a profile link, with clear messages for each problem
+  - Steam users can add a username and password on their profile (`PUT /users` with `username`)
+  - `GET /auth/options` hides panel accounts when they're off
+  - fixed a super admin being logged out when editing their own profile
 
 ## Phase 6: Ops
 - [x] Node 22 LTS (`engines` >=22.12, `.nvmrc`, Dockerfile `node:22-alpine`); pm2 `prodrun.json` with
