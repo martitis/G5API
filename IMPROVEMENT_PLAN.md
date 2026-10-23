@@ -1,7 +1,7 @@
 # Improvement plan: G5API + G5V (CS2 / MatchZy panel)
 
-This file is shared by both repos. The frontend repo is `../G5V`; the new Vue 3 panel is developed in the worktree
-`../G5V-next` (same repo, branch `phase5-match-list`). Tick items (`- [x]`) as they land and note the PR.
+This file is shared by both repos. The frontend repo is `../G5V`, checked out on `phase5-match-list` (the new Vue 3
+panel; it was developed in a `../G5V-next` worktree until 2026-10-23). Tick items (`- [x]`) as they land and note the PR.
 The line numbers are from the 2026-10-20 analysis and will drift, so search for the code if they no longer match.
 Last reviewed against the code: 2026-10-22.
 
@@ -262,8 +262,10 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 State on 2026-10-22: nothing after Phase 2 is pushed or merged.
 - G5API: `phase2-matchzy` is 6 commits ahead of origin (the Phase 4 backend fixes); `phase5-match-list` is based on
   it and never pushed. Local `master` is 4 commits behind origin.
-- G5V: `phase4-vue3` and `phase5-match-list` (worktree `../G5V-next`) were never pushed. The `../G5V` checkout is on
-  `pr/tech62/171` (an upstream PR branch), not on a phase branch. Local `master` is 4 commits behind origin.
+- G5V: `phase4-vue3` and `phase5-match-list` were never pushed. Since 2026-10-23 the `../G5V` checkout is on
+  `phase5-match-list` (it was on `pr/tech62/171`, an upstream PR branch). Local `master` is 4 commits behind origin.
+  The old `../G5V-next` folder is a detached leftover worktree; delete it with `git worktree remove ../G5V-next`
+  from `../G5V` when you no longer need it.
 - [ ] Plan: pull `master` in both repos; push `phase2-matchzy` (G5API) and open/refresh its PR; then push
   `phase5-match-list` in both repos as one PR each (it contains the Phase 3/4/5 work), or split per phase if reviews
   need it. The G5V PR replaces the Vue 2 code with the Vite panel
