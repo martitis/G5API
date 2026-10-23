@@ -287,13 +287,13 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   secrets and `node_modules` out of the image
 
 ## Branches and merging
-State on 2026-10-23: `phase5-match-list` is pushed in both repos (it contains Phase 1–6 in G5API and Phase 3–5 in
-G5V, and merges cleanly onto `master`, which already has Phase 0). One PR per repo, `phase5-match-list` → `master`;
-the older phase branches don't need their own PRs.
+State on 2026-10-23: **`development`** is the working branch in both repos (pushed). It contains every branch on
+`origin` (all phase branches, `phase5-match-list`, and `master` with the Phase 0 merges), and new work goes there.
+`phase5-match-list` has the same files and stays as it is.
 - The old `../G5V-next` folder is a detached leftover worktree; delete it with `git worktree remove ../G5V-next`
   from `../G5V` when you no longer need it.
-- [x] Push `phase5-match-list` in both repos
-- [ ] Open the two PRs (needs `gh auth login`, or the GitHub web form)
+- [x] Push `phase5-match-list` and `development` in both repos
+- [ ] Open the two PRs `development` → `master` (needs `gh auth login`, or the GitHub web form)
 - [ ] Before merging the panel: click through every page against a running API (Phase 4 open item), PUG queue with two
   Steam accounts, a tournament with real matches
 
