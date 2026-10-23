@@ -2,7 +2,7 @@
 
 The backend of a CS2 tournament panel. It manages matches, teams, servers, seasons, tournaments and PUG queues,
 drives the [MatchZy](https://shobhit-pathak.github.io/MatchZy/) plugin over RCON, and keeps the stats MatchZy reports
-back. The panel itself is [G5V](https://github.com/martitis/G5V) (Vue 3).
+back. The panel itself is [G5V-newgen](https://github.com/martitis/G5V-newgen) (Vue 3).
 
 This started as a fork of [PhlexPlexico/G5API](https://github.com/PhlexPlexico/G5API), which was written for Get5. It
 now targets MatchZy only and has diverged a long way from upstream.

@@ -94,7 +94,7 @@ handle_path /api/* {
   connect links. It stays set on the server after the match.
 
 ## Docker (optional)
-`docker-compose.yml` builds this repo (`build: .`) and uses the panel image from your GHCR (`ghcr.io/martitis/g5v`).
+`docker-compose.yml` builds this repo (`build: .`) and uses the panel image from your GHCR (`ghcr.io/martitis/g5v-newgen`).
 The image runs the same migrations at start. `config/*.json` never goes into the image (`.dockerignore`), and the
 container builds `production.json` from environment variables (`config/production.json.template`).
 
