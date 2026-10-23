@@ -31,7 +31,7 @@ import templatesRouter from "./src/routes/templates.js";
 import scheduledRouter from "./src/routes/scheduled.js";
 import { startScheduleSweep } from "./src/services/scheduler.js";
 import { startPugSweep } from "./src/services/pugs.js";
-import { startHeartbeatSweep } from "./src/services/heartbeat.js";
+import { startHeartbeatSweep, startServerSweep } from "./src/services/heartbeat.js";
 import matchesRouter from "./src/routes/matches/matches.js";
 import matchServerRouter from "./src/routes/matches/matchserver.js";
 import playerstatsRouter from "./src/routes/playerstats/playerstats.js";
@@ -238,6 +238,8 @@ if (process.env.NODE_ENV !== "test") {
   startScheduleSweep();
   // Polls the game server of every live match (offline / restarted servers, missed events).
   startHeartbeatSweep();
+  // Probes every game server every 10 s (last seen on the servers page; the match checks reuse the answer).
+  startServerSweep();
 }
 app.use("/v2", v2Router);
 app.use("/v2/demo", v2DemoRouter);
@@ -287,12 +289,13 @@ const authRateLimit = rateLimit({
   message: { message: "Too many attempts, please try again later." }
 });
 
-// Express only treats 4-argument middleware as an error handler, so _next must stay.
-const localAuthFailure = (err: any, req: any, res: any, _next: any) => {
+// Express only treats 4-argument middleware as an error handler, so next must stay.
+const localAuthFailure = (err: any, req: any, res: any, next: any) => {
+  // A real error (database down, ...) goes to the global handler; a refused login answers with its reason.
+  if (err?.name !== "AuthenticationError") return next(err);
   const messages: string[] = req.session?.messages ?? [];
-  return res
-    .status(err.status || 401)
-    .json({ message: messages[messages.length - 1] ?? "Authentication failed." });
+  if (req.session) req.session.messages = [];
+  return res.status(401).json({ message: messages[messages.length - 1] ?? "Authentication failed." });
 };
 
 app.post(

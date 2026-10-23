@@ -12,7 +12,7 @@ Frontend: `../G5V` (Vue). Roadmap and progress: [IMPROVEMENT_PLAN.md](IMPROVEMEN
 - MySQL via `mysql2` (`src/services/db.ts`), migrations via `db-migrate`
 - passport: Steam OpenID plus optional local login (`src/utility/auth.ts`), express-session (optional Redis store)
 - RCON: `dathost-rcon-client` (`src/utility/serverrcon.ts`)
-- Swagger at `/api-docs` (JSDoc `@swagger` blocks in the route files plus `src/types/swagger/`)
+- Swagger at `/api-docs`, built from the JSDoc `@swagger` blocks in the route files and `app.ts`
 
 ## Commands
 Yarn 1 is the package manager; `yarn.lock` is the only lockfile. If yarn isn't installed globally, use `npx yarn@1.22.22 <cmd>`.

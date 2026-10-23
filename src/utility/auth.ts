@@ -16,6 +16,7 @@ import Utils from "./utils.js";
 import User from "steamapi/dist/src/structures/User.js";
 
 import logger from "./logger.js";
+import { passwordProblem, usernameProblem } from "./credentials.js";
 passport.serializeUser((user, done) => {
   done(null, user);
 });
@@ -154,107 +155,88 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
 passport.use(strategyForEnvironment());
 
 // Local Strategies
+/** The session user for a user row (same shape as a Steam login). */
+const sessionUser = (row: RowDataPacket) => ({
+  steam_id: row.steam_id,
+  name: row.name,
+  admin: row.admin,
+  super_admin: row.super_admin,
+  id: row.id,
+  small_image: row.small_image,
+  medium_image: row.medium_image,
+  large_image: row.large_image,
+  api_key: row.id + ":" + Utils.decrypt(row.api_key)
+});
+
+const LOCAL_DISABLED = "Username and password logins are turned off on this panel. Sign in with Steam instead.";
+
 passport.use('local-login', new LocalStrategy(async (username, password, done) => {
   try {
-    if (!config.get("server.localLoginEnabled")) {
-      return done(null, false, {message: "Sorry, local logins are disabled for this instance."});
+    if (!config.get("server.localLoginEnabled")) return done(null, false, { message: LOCAL_DISABLED });
+    const rows: RowDataPacket[] = await db.query("SELECT * FROM user WHERE username = ?", [username.trim()]);
+    // Same message for an unknown user and a wrong password, so usernames can't be probed.
+    if (!rows.length || !rows[0].password || !(await compare(password, rows[0].password))) {
+      return done(null, false, { message: "Wrong username or password." });
     }
-    let sql = "SELECT * FROM user WHERE username = ?";
-    const curUser = await db.query(sql, [username]);
-    if (curUser.length) {
-      const isValidPassword = await compare(password, curUser[0].password);
-      if (isValidPassword) {
-        return done(null, {
-          steam_id: curUser[0].steam_id,
-          name: curUser[0].name,
-          admin: curUser[0].admin,
-          super_admin: curUser[0].super_admin,
-          id: curUser[0].id,
-          small_image: curUser[0].small_image,
-          medium_image: curUser[0].medium_image,
-          large_image: curUser[0].large_image,
-          api_key: curUser[0].id + ":" + Utils.decrypt(curUser[0].api_key)
-        });
-      } else {
-        return done(null, false, {message: "Invalid username or password."});
-      }
-    } else {
-      return done(null, false, {message: "Invalid username or password."});
-    }
-  } catch (e) {
-    logger.error(e);
+    return done(null, sessionUser(rows[0]));
+  } catch (err) {
+    return done(err);
   }
-  return done(null, undefined);
 }));
 
 passport.use('local-register',
-  new LocalStrategy({ passReqToCallback: true }, (async (req, username, password, done) => {
+  new LocalStrategy({ passReqToCallback: true }, (async (req, rawUsername, password, done) => {
     try {
-      if (!config.get("server.localLoginEnabled")) {
-        return done(null, false, {message: "Sorry, local logins are disabled for this instance."});
+      if (!config.get("server.localLoginEnabled")) return done(null, false, { message: LOCAL_DISABLED });
+      const username = rawUsername.trim();
+      const problem = usernameProblem(username) ?? passwordProblem(password);
+      if (problem) return done(null, false, { message: problem });
+      // A SteamID64, a profile link or a custom profile name (looked up on Steam).
+      const steamId: string = await Utils.getSteamPID(String(req.body.steam_id ?? ""));
+      if (!steamId) {
+        return done(null, false, { message: "Enter your SteamID64 or Steam profile link (steamcommunity.com/...)." });
       }
-      let sql = "SELECT * FROM user WHERE username = ? OR steam_id = ?";
-      let defaultMaps = [];
-      if (!req.body.steam_id) {
-        return done(null, false, {message: "Steam ID was not provided"});
+      if ((await db.query("SELECT id FROM user WHERE username = ?", [username])).length) {
+        return done(null, false, { message: "That username is taken." });
       }
-      let curUser = await db.query(sql, [username, req.body.steam_id]);
-      if (curUser.length) {
-        return done(null, false, {message: "Username or SteamID already exists."})
-      } else {
-        // Check if steam64 is correct.
-        if(await Utils.convertToSteam64(req.body.steam_id) == "") {
-          return done(null, false, {message: "Not a valid Steam64 ID."});
-        }
-        // A local registration doesn't prove ownership of the Steam ID, so it never gets
-        // admin rights from the config lists; those apply after a real Steam login.
-        let apiKey = generate({
-          length: 64,
-          capitalization: "uppercase",
+      if ((await db.query("SELECT id FROM user WHERE steam_id = ?", [steamId])).length) {
+        return done(null, false, {
+          message:
+            "This Steam account already has a panel account. Sign in with Steam, then add a username and password on your profile page."
         });
-        sql = "INSERT INTO user SET ?";
-        let steamName: String = await Utils.getSteamName(req.body.steam_id);
-        let newUser: Object = {
-          steam_id: req.body.steam_id,
-          name: steamName,
+      }
+      // A local registration doesn't prove ownership of the Steam ID, so it never gets
+      // admin rights from the config lists; those apply after a real Steam login.
+      const apiKey = generate({ length: 64, capitalization: "uppercase" });
+      const insert: any = await db.query("INSERT INTO user SET ?", [
+        await db.buildUpdateStatement({
+          steam_id: steamId,
+          name: (await Utils.getSteamName(steamId)) || username,
           admin: 0,
           super_admin: 0,
           steam_verified: 0,
           created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
           api_key: Utils.encrypt(apiKey),
-          username: username,
+          username,
           password: hashSync(password, 10)
-        };
-        newUser = await db.buildUpdateStatement(newUser);
-        await db.query(sql, newUser);
-        sql = "SELECT * FROM user WHERE steam_id = ?";
-        curUser = await db.query(sql, [req.body.steam_id]);
-        defaultMaps.push(['de_inferno', 'Inferno', curUser[0].id]);
-        defaultMaps.push(['de_ancient', 'Ancient', curUser[0].id]);
-        defaultMaps.push(['de_mirage', 'Mirage', curUser[0].id]);
-        defaultMaps.push(['de_nuke', 'Nuke', curUser[0].id]);
-        defaultMaps.push(['de_anubis', 'Anubis', curUser[0].id]);
-        defaultMaps.push(['de_dust2', 'Dust II', curUser[0].id]);
-        defaultMaps.push(['de_vertigo', 'Vertigo', curUser[0].id]);
-        sql = "INSERT INTO map_list (map_name, map_display_name, user_id) VALUES ?";
-        await db.query(sql, [defaultMaps]);
-        return done(null, {
-          steam_id: curUser[0].steam_id,
-          name: curUser[0].name,
-          admin: curUser[0].admin,
-          super_admin: curUser[0].super_admin,
-          id: curUser[0].id,
-          small_image: curUser[0].small_image,
-          medium_image: curUser[0].medium_image,
-          large_image: curUser[0].large_image,
-          api_key: curUser[0].id + ":" + Utils.decrypt(curUser[0].api_key)
-        });
-      }
-    } catch (e) {
-      logger.error(e);
+        })
+      ]);
+      const userId: number = insert.insertId;
+      const defaultMaps = [
+        ["de_inferno", "Inferno"],
+        ["de_ancient", "Ancient"],
+        ["de_mirage", "Mirage"],
+        ["de_nuke", "Nuke"],
+        ["de_anubis", "Anubis"],
+        ["de_dust2", "Dust II"],
+        ["de_vertigo", "Vertigo"]
+      ].map(([map, display]) => [map, display, userId]);
+      await db.query("INSERT INTO map_list (map_name, map_display_name, user_id) VALUES ?", [defaultMaps]);
+      const rows: RowDataPacket[] = await db.query("SELECT * FROM user WHERE id = ?", [userId]);
+      return done(null, sessionUser(rows[0]));
+    } catch (err) {
+      return done(err);
     }
-    return done(null, undefined, 
-      {message: "Unknown error. Please ensure the steam ID is not already in use."});
   })));
 
 export default passport;

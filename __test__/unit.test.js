@@ -10,6 +10,7 @@ import { cleanSettings } from "../src/services/tournaments.js";
 import { eventProblem } from "../src/services/eventschemas.js";
 import { forMatch } from "../src/utility/emitter.js";
 import { assessServerState, nextState } from "../src/services/serverstate.js";
+import { passwordProblem, usernameProblem } from "../src/utility/credentials.js";
 import {
   doubleElimination,
   resolveBracket,
@@ -763,5 +764,16 @@ describe("server heartbeat assessment", () => {
     expect(once).toEqual({ state: "ok", strikes: 1 });
     expect(nextState(once, "offline")).toEqual({ state: "offline", strikes: 2 });
     expect(nextState({ state: "offline", strikes: 4 }, "ok")).toEqual({ state: "ok", strikes: 0 });
+  });
+});
+
+describe("local login rules", () => {
+  it("accepts sensible usernames and passwords and explains the rest", () => {
+    expect(usernameProblem("martin_92")).toBeNull();
+    expect(usernameProblem("ab")).toMatch(/3 to 32/);
+    expect(usernameProblem("has space")).toMatch(/letters, digits/);
+    expect(passwordProblem("long enough")).toBeNull();
+    expect(passwordProblem("short")).toMatch(/at least 8/);
+    expect(passwordProblem("x".repeat(73))).toMatch(/at most 72/);
   });
 });

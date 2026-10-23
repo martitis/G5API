@@ -1,5 +1,7 @@
 import { agent } from "supertest";
 import app from "../app.js";
+import { checkServer } from "../src/services/heartbeat.js";
+import { db } from "../src/services/db.js";
 const request = agent(app);
 const password = "SUPER SECRET DON'T TELL";
 
@@ -189,5 +191,11 @@ describe("Test the game server routes.", () => {
   });
   it("Should report health with a working database.", () => {
     return request.get("/health").expect(200).expect((result) => expect(result.body).toMatchObject({ status: "ok", db: true }));
+  });
+  it("Should record when a server last answered.", async () => {
+    await checkServer(2);
+    const rows = await db.query("SELECT last_seen, last_checked FROM game_server WHERE id = 2");
+    expect(rows[0].last_checked).toBeTruthy();
+    expect(rows[0].last_seen).toBeTruthy();
   });
 });

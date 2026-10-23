@@ -29,7 +29,7 @@
   },
   "scripts": {
     "build": "yarn clean && tsc",
-    "lint": "eslint . --max-warnings=540",
+    "lint": "eslint . --max-warnings=532",
     "format": "prettier --write",
     "clean": "node -e \"require('fs').rmSync('./dist',{recursive:true,force:true})\"",
     "start": "tsc-watch --project . --outDir ./dist --onSuccess \"nodemon ./dist/bin/www.js\"",
@@ -133,7 +133,6 @@
     "nodemon": "^3.1.9",
     "passport-openidconnect": "^0.1.2",
     "prettier": "3.9.8",
-    "redis-mock": "^0.56.3",
     "supertest": "^6.3.3",
     "ts-jest": "^29.3.0",
     "tsc-watch": "^6.2.1",

@@ -11,4 +11,6 @@ export interface UserObject {
     api_key?: string | undefined | null,
     challonge_api_key?: string | undefined | null,
     password?: string | null | undefined,
+    /** Set once, when a Steam user adds a local login. */
+    username?: string,
 }
