@@ -2,6 +2,10 @@ name: Publish to GHCR
 # Manual only: deployment is bare Node + pm2, so Docker images are optional.
 on:
   workflow_dispatch:
+# Pushes the image with the workflow token, so it needs package write access.
+permissions:
+  contents: read
+  packages: write
 jobs:
   push:
     name: Create build and push to GHCR
