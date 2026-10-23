@@ -65,6 +65,49 @@ describe("Test the user routes", () => {
         expect(res.body.message).toMatch(/signed in with Steam/);
       });
   });
+  it('Should explain what is wrong with a registration.', async () => {
+    const client = agent(app);
+    const register = (body) => client.post('/register').set('Content-Type', 'application/json').send(body);
+    expect((await register({ username: "shortpw", password: "short", steam_id: "76561198000000778" }).expect(401)).body.message)
+      .toMatch(/at least 8/);
+    expect((await register({ username: "x y", password: "long enough", steam_id: "76561198000000778" }).expect(401)).body.message)
+      .toMatch(/3 to 32/);
+    expect((await register({ username: "nosteam", password: "long enough", steam_id: "STEAM_0:1:not-a-number" }).expect(401)).body.message)
+      .toMatch(/SteamID64 or Steam profile link/);
+    expect((await register({ username: "localonly", password: "long enough", steam_id: "76561198000000778" }).expect(401)).body.message)
+      .toMatch(/username is taken/);
+    expect((await register({ username: "sameacct", password: "long enough", steam_id: "76561198000000777" }).expect(401)).body.message)
+      .toMatch(/already has a panel account/);
+    // A profile link works as well as the bare SteamID64.
+    await register({ username: "viaprofile", password: "long enough", steam_id: "https://steamcommunity.com/profiles/76561198000000779/" })
+      .expect(200);
+    const me = await client.get('/isloggedin').expect(200);
+    expect(me.body.steam_id).toBe("76561198000000779");
+  });
+  it('Should sign in with a local login, and refuse a wrong password with one message.', async () => {
+    const client = agent(app);
+    const login = (password) => client.post('/login').set('Content-Type', 'application/json').send({ username: "localonly", password });
+    expect((await login("wrong password").expect(401)).body.message).toBe("Wrong username or password.");
+    await login("localonly-pass").expect(200);
+  });
+  it('Should tell the panel how users can sign in.', async () => {
+    const res = await request.get('/auth/options').expect(200);
+    expect(res.body).toEqual({ steam: true, local_login: true, password_min: 8, password_max: 72 });
+  });
+  it('Should let a Steam user add a username and password, then sign in with them.', async () => {
+    await request.put('/users').set('Content-Type', 'application/json')
+      .send([{ steam_id: "76561198000000042", username: "localonly", password: "steamuser-pass" }])
+      .expect(409);
+    await request.put('/users').set('Content-Type', 'application/json')
+      .send([{ steam_id: "76561198000000042", username: "testadmin", password: "short" }])
+      .expect(412);
+    await request.put('/users').set('Content-Type', 'application/json')
+      .send([{ steam_id: "76561198000000042", username: "testadmin", password: "steamuser-pass" }])
+      .expect(200);
+    await agent(app).post('/login').set('Content-Type', 'application/json')
+      .send({ username: "testadmin", password: "steamuser-pass" })
+      .expect(200);
+  });
   it('Should list users with their roles for a super admin.', () => {
     return request.get('/admin/users')
       .expect(200)

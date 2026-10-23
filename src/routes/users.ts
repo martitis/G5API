@@ -17,6 +17,8 @@ import { audited, firstBody } from "../utility/audit.js";
 import { generate } from "randomstring";
 import { RowDataPacket } from "mysql2";
 import { UserObject } from "../types/users/UserObject.js";
+import config from "config";
+import { passwordProblem, usernameProblem } from "../utility/credentials.js";
 
 /* Swagger shared definitions */
 
@@ -278,7 +280,7 @@ router.post("/", Utils.ensureAuthenticated, audited("user.create", { target: (re
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req) => ({ type: "user", id: Number(firstBody(req).id) || null }), detail: (req) => { const b = firstBody(req); return [b.admin != null ? `admin=${b.admin}` : "", b.super_admin != null ? `super_admin=${b.super_admin}` : "", b.password ? "password changed" : "", b.new_api ? "new API key" : "", b.challonge_api_key != null ? "Challonge key" : "", b.name != null ? "name" : ""].filter(Boolean).join(", ") || null; } }), async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req) => ({ type: "user", id: Number(firstBody(req).id) || null }), detail: (req) => { const b = firstBody(req); return [b.admin != null ? `admin=${b.admin}` : "", b.super_admin != null ? `super_admin=${b.super_admin}` : "", b.username ? "local login added" : "", b.password ? "password changed" : "", b.new_api ? "new API key" : "", b.challonge_api_key != null ? "Challonge key" : "", b.name != null ? "name" : ""].filter(Boolean).join(", ") || null; } }), async (req, res, next) => {
   try {
     // Resolve exactly one target user; every later check and the update use this row.
     let userToBeUpdated: RowDataPacket[] =
@@ -323,9 +325,41 @@ router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req
       req.body[0].challonge_api_key == null
         ? null
         : Utils.encrypt(req.body[0].challonge_api_key);
-    let password: string | undefined = req.body[0].password;
-    let oldPassword: string = req.body[0].old_password;
+    const password: string | undefined = req.body[0].password;
+    const oldPassword: string = req.body[0].old_password;
+    // A user without a local login (signed up with Steam) may add a username and password.
+    const newUsername: string | undefined =
+      typeof req.body[0].username === "string" ? req.body[0].username.trim() : undefined;
+    if (password) {
+      const problem = passwordProblem(password);
+      if (problem) {
+        res.status(412).json({ message: problem });
+        return;
+      }
+    }
     if (apiKey != null) apiKey = Utils.encrypt(apiKey);
+    // Only for your own profile, and only once (usernames don't change afterwards).
+    let setUsername: string | undefined;
+    if (isSelf && newUsername != null && !target.username) {
+      if (!config.get("server.localLoginEnabled")) {
+        res.status(412).json({ message: "Username and password logins are turned off on this panel." });
+        return;
+      }
+      const problem = usernameProblem(newUsername) ?? (password ? null : "Choose a password too.");
+      if (problem) {
+        res.status(412).json({ message: problem });
+        return;
+      }
+      const taken: RowDataPacket[] = await db.query("SELECT id FROM user WHERE username = ? AND id <> ?", [
+        newUsername,
+        target.id
+      ]);
+      if (taken.length) {
+        res.status(409).json({ message: "That username is taken." });
+        return;
+      }
+      setUsername = newUsername;
+    }
     let updateUser: UserObject;
     if (callerIsSuperAdmin) {
       // A super admin locked out by mistake gets the role back from super_admins.steam_ids at the next Steam login.
@@ -346,6 +380,7 @@ router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req
         medium_image: mediumImage,
         large_image: largeImage,
         api_key: apiKey,
+        username: setUsername,
         password: password ? hashSync(password, 10) : null,
         challonge_api_key: isSelf ? challongeApiKey : null
       };
@@ -366,7 +401,8 @@ router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req
         medium_image: callerIsAdmin ? mediumImage : undefined,
         large_image: callerIsAdmin ? largeImage : undefined,
         api_key: apiKey,
-        password: target.username != null && password ? hashSync(password, 10) : null,
+        username: setUsername,
+        password: (target.username != null || setUsername != null) && password ? hashSync(password, 10) : null,
         challonge_api_key: challongeApiKey
       };
     } else if (callerIsAdmin && !target.admin && !target.super_admin) {
@@ -388,13 +424,14 @@ router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req
     }
     let sql: string = "UPDATE user SET ? WHERE id = ?";
     await db.query(sql, [updateUser, target.id]);
-    // If we're updating ourselves we need to update their session. Force a reload of session.
-    if (isSelf && callerIsSuperAdmin) {
-      caller.super_admin = isSuperAdmin;
-      caller.admin = isAdmin;
-      req.login(caller, (err) => {
-        if (err) return next(new Error("Error updating user profile"));
-      });
+    // A super admin changing their own roles: the session gets the new roles. Only roles that were sent change,
+    // and the reply waits for the new session (req.login starts a new one; answering first logged the user out).
+    if (isSelf && callerIsSuperAdmin && (req.body[0].admin != null || req.body[0].super_admin != null)) {
+      if (req.body[0].super_admin != null) caller.super_admin = isSuperAdmin;
+      if (req.body[0].admin != null) caller.admin = isAdmin;
+      await new Promise<void>((resolve, reject) =>
+        req.login(caller, (err: unknown) => (err ? reject(err instanceof Error ? err : new Error("Could not update the session.")) : resolve()))
+      );
     }
     res.status(200).json({ message: "User successfully updated!" });
   } catch (err) {
