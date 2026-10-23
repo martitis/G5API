@@ -294,6 +294,15 @@ State on 2026-10-23: **`development`** is the working branch in both repos (push
   from `../G5V` when you no longer need it.
 - [x] Push `phase5-match-list` and `development` in both repos
 - [x] PRs opened 2026-10-23: martitis/G5API#9 and martitis/G5V#5 (`development` → `master`; merge G5API first or together)
+- [x] GitHub hardening (2026-10-23, both repos):
+  - only `master` and `development` remain on GitHub; the other branches were deleted after being tagged `archive/<branch>`
+    (restore one with `git push origin archive/<name>:refs/heads/<name>`)
+  - rulesets:
+    - `master`: PR with one approval; admins may merge a PR without it; no direct pushes
+    - `master-ci`: CI must pass, no bypass
+    - `master` and `development`: no force push or deletion
+  - Actions: the workflow token is read-only by default and workflows can't approve PRs; runs from outside
+    contributors' PRs wait for approval
 - [ ] Before merging the panel: click through every page against a running API (Phase 4 open item), PUG queue with two
   Steam accounts, a tournament with real matches
 
