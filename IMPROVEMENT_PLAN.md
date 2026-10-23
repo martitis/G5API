@@ -287,16 +287,13 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   secrets and `node_modules` out of the image
 
 ## Branches and merging
-State on 2026-10-22: nothing after Phase 2 is pushed or merged.
-- G5API: `phase2-matchzy` is 6 commits ahead of origin (the Phase 4 backend fixes); `phase5-match-list` is based on
-  it and never pushed. Local `master` is 4 commits behind origin.
-- G5V: `phase4-vue3` and `phase5-match-list` were never pushed. Since 2026-10-23 the `../G5V` checkout is on
-  `phase5-match-list` (it was on `pr/tech62/171`, an upstream PR branch). Local `master` is 4 commits behind origin.
-  The old `../G5V-next` folder is a detached leftover worktree; delete it with `git worktree remove ../G5V-next`
+State on 2026-10-23: `phase5-match-list` is pushed in both repos (it contains Phase 1–6 in G5API and Phase 3–5 in
+G5V, and merges cleanly onto `master`, which already has Phase 0). One PR per repo, `phase5-match-list` → `master`;
+the older phase branches don't need their own PRs.
+- The old `../G5V-next` folder is a detached leftover worktree; delete it with `git worktree remove ../G5V-next`
   from `../G5V` when you no longer need it.
-- [ ] Plan: pull `master` in both repos; push `phase2-matchzy` (G5API) and open/refresh its PR; then push
-  `phase5-match-list` in both repos as one PR each (it contains the Phase 3/4/5 work), or split per phase if reviews
-  need it. The G5V PR replaces the Vue 2 code with the Vite panel
+- [x] Push `phase5-match-list` in both repos
+- [ ] Open the two PRs (needs `gh auth login`, or the GitHub web form)
 - [ ] Before merging the panel: click through every page against a running API (Phase 4 open item), PUG queue with two
   Steam accounts, a tournament with real matches
 
