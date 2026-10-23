@@ -241,34 +241,33 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   - [x] connect links with the server password (`game_server.join_password`, sent as `sv_password` in the match
     config; `steam://connect/ip:port/password` and `connect ip:port; password …`). The cvar stays set on the server
     after the match
-- [ ] **5.8 Match/server resilience** (user request, 2026-10-23). Today the panel only learns about a match through
-  MatchZy's webhook events. If the API was down, or the server was restarted from its console, the panel keeps showing
-  stale state (for example a score that is different on the server).
-  - [ ] **Server heartbeat:** a sweep (about every 30 s) polls `get5_status` on every server with a live match and stores
-    `last_seen`, `reachable`, `gamestate`, `matchid`, map number, round number and map scores (new columns or a
-    `server_status` table). It should back off on failure and never block the request path. The match page and match
-    list show "server offline / last seen 2 min ago". The heartbeat is pushed over the existing SSE streams.
-  - [ ] **Detect a restarted or reloaded server:** the server is reachable but `get5_status.matchid` is not this match, or
-    `gamestate` is `none` while the panel thinks the match is live. This marks the match as **interrupted** (a new
-    state, kept apart from paused/cancelled) and audits it.
-  - [ ] **Interrupted-match banner** for the owner and admins, with clear choices:
-    - **Reload the match**: `matchzy_loadmatch_url` again. MatchZy starts from the beginning of the series.
-    - **Restore a round**: `matchzy_loadbackup` from the backup list, or `css_restore N` once round backups work
-      (MatchZy PR #422). Reload first when MatchZy has no match loaded.
-    - **Restart the match**: wipe the panel stats, then reload.
-    - **Cancel / end with a winner** (forfeit).
-    - **Dismiss** ("server is fine, keep waiting") for false alarms, such as a map change.
-    Each choice is confirmed and audited. Check the right order of reload + restore against MatchZy's source before
-    building it.
-  - [ ] **Resync after missed events:** when the heartbeat's score or map number differs from the DB, update
-    `map_stats` scores (and the series score / current map) from `get5_status`. Flag the map as "stats incomplete"
-    when rounds are missing from `match_round`, because per-player stats from missed rounds can't be rebuilt from
-    `get5_status`. Also add a manual **Resync from server** button in the match menu. Missed `map_result` /
-    `series_end`: when the server reports the next map or `gamestate` `none` after the last map, finish the map or
-    series the same way the event handlers do (idempotent, so a late event doesn't double-count).
-  - [ ] **API startup catch-up:** on start, run one heartbeat pass over every live match, so downtime is noticed straight away.
-  - [ ] Tests: unit tests for the state comparison (pure function: DB state + `get5_status` → ok / resync / interrupted),
-    plus integration tests with a mocked `get5_status`.
+- [x] **5.8 Match/server resilience** (user request, 2026-10-23). The panel used to learn about a match only from
+  MatchZy's webhook events, so if the API was down, or the server was restarted from its console, it kept showing
+  stale state (for example a score that was different on the server).
+  - [x] **Server heartbeat** (`services/heartbeat.ts`): every 30 s, and once at API start, the API reads `get5_status`
+    (5 s timeout) for every live match and stores it in `match_server_state` (state, strikes, reason, last seen,
+    gamestate, server match id, map, round and scores). It never blocks requests. A state change emits `matchUpdate`,
+    so match list rows update over the summary stream; the match page banner refreshes every 20 s.
+  - [x] **Offline / interrupted:** no RCON answer twice in a row means **offline**. No match loaded after the 90 s
+    load grace period, or another match id, twice in a row, means **interrupted**. Comparing states is a pure function
+    (`services/serverstate.ts`, unit tested). A missed `series_end` also shows up as interrupted (`gamestate` `none`),
+    and the admin ends the match with its winner.
+  - [x] **Banner on the match page** (`ServerStateBanner.vue`) with the reason and when the server last answered. The
+    owner and admins get: restore a round (backup list), load the match again (`POST /matches/:id/server/reload`,
+    keeps the stats), restart, end with a winner, cancel, check now (`/server/check`) and dismiss (`/server/dismiss`,
+    lasts until the server is fine and fails again). Everyone else is told the admins can see it. Checked in MatchZy's
+    source: a round backup carries `match_loaded` and the full `match_config`, so `matchzy_loadbackup` sets the match
+    up again by itself, and a restarted server doesn't need a reload before the restore. Match list rows show an
+    "Server offline" / "Interrupted" chip.
+  - [x] **Resync after missed events:** a score the server reports on two checks in a row that differs from the DB is
+    written to `map_stats` (a map that never went live is inserted with its name from `get5_status.maps`). Earlier
+    maps the panel still shows as running are closed with the winner taken from their scores, and the series score is
+    updated. Maps whose score was resynced get `stats_incomplete` and a note on the match page. Verified against the
+    real server: match 3's stale map score was corrected from `get5_status`. Not done: PUG stats for a map closed this
+    way (`updatePugStats` only runs on a real `map_result`).
+  - [x] **API startup catch-up:** the sweep's first pass runs straight away.
+  - [x] Tests: assessment unit tests (ok / offline / interrupted / load grace / resync / two-strike rule) and an
+    integration test with a fake `get5_status` (insert, stable-score rule, interrupted, dismiss, reload, clearing).
 
 ## Phase 6: Ops
 - [x] Node 22 LTS (`engines` >=22.12, `.nvmrc`, Dockerfile `node:22-alpine`); pm2 `prodrun.json` with
