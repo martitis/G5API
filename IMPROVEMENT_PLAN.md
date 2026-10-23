@@ -234,7 +234,6 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
     keep the reason and can be retried) on create match; no-show chip/warning after 10 minutes waiting for players
   - [x] practice-mode launcher (`POST /servers/:id/practice`, `game_server.practice_mode`; the server counts as in
     use while practicing) on the servers page
-- [ ] **5.6 Fun/community (optional, waiting for the user to pick which ones):** match awards, highlights feed, player profiles 2.0 + achievements, Elo/OpenSkill, Discord webhooks, pick'em, OBS overlay, live widget, hall of fame, fun presets
 - [x] **5.7 Small:**
   - [x] GOTV link (match page and match list rows)
   - [x] map pool per season (season defaults) and per tournament (tournament settings)
