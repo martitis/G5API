@@ -25,11 +25,49 @@ import { Get5_OnBombEvent } from "../types/map_flow/Get5_OnBombEvent.js";
 import { Get5_OnRoundEnd } from "../types/map_flow/Get5_OnRoundEnd.js";
 import { Get5_OnRoundStart } from "../types/map_flow/Get5_OnRoundStart.js";
 import update_challonge_match from "./challonge.js";
+import { parseMapPool } from "./matchconfig.js";
+
+import logger from "../utility/logger.js";
+/** Sends the error to the game server; MatchZy doesn't retry, so this mainly shows up in its log. */
+function sendError(res: Response, error: unknown) {
+  logger.error(error);
+  if (res.headersSent) return;
+  res.status(500).send({ message: error instanceof Error ? error.message : String(error) });
+}
+
+/** Map stats row of a map in a match, if the map has gone live. */
+async function getMapStat(matchId: string, mapNumber: number): Promise<RowDataPacket | undefined> {
+  const rows: RowDataPacket[] = await db.query(
+    "SELECT id, round_restored FROM map_stats WHERE match_id = ? AND map_number = ?",
+    [matchId, mapNumber]
+  );
+  return rows[0];
+}
+
+/** Team of a player in this match, or null for players not on either roster (added in game, PUG late joiners). */
+async function getPlayerTeamId(matchId: string, steamId: string | undefined): Promise<number | null> {
+  if (!steamId) return null;
+  const rows: RowDataPacket[] = await db.query(
+    "SELECT ta.team_id FROM team_auth_names ta JOIN `match` m " +
+      "ON (m.team1_id = ta.team_id OR m.team2_id = ta.team_id) WHERE m.id = ? AND ta.auth = ? LIMIT 1",
+    [matchId, steamId]
+  );
+  return rows[0]?.team_id ?? null;
+}
 
 /**
  * @class
  * Map flow service class for live games.
  */
+/** "ct" or "t" from a MatchZy side value, null when unknown. MatchZy's winner.side uses the game's team
+ * numbers ("3" = CT, "2" = T, "0" = none); player sides are "ct" / "t". */
+export const normalizeSide = (side: unknown): "ct" | "t" | null => {
+  const value = typeof side === "string" || typeof side === "number" ? String(side).toLowerCase() : "";
+  if (value === "ct" || value === "3" || value === "counterterrorist") return "ct";
+  if (value === "t" || value === "2" || value === "terrorist") return "t";
+  return null;
+};
+
 class MapFlowService {
   /**
    * Updates the database and emits mapStatUpdate when the map has gone live.
@@ -42,40 +80,29 @@ class MapFlowService {
   ) {
     try {
       let sqlString: string;
-      let mapStatInfo: RowDataPacket[];
-      let vetoInfo: RowDataPacket[];
       let startTime: string = new Date()
         .toISOString()
         .slice(0, 19)
         .replace("T", " ");
       let insUpdStatement: object;
-      let mapName: string;
-      let matchInfo: RowDataPacket[];
+      let mapName: string | undefined;
 
+      // Picked maps are played in pick order; without a veto, the pool order is the map order.
       sqlString = "SELECT map FROM veto WHERE match_id = ? AND pick_or_veto = 'pick' ORDER BY id";
-      vetoInfo = await db.query(sqlString, [event.matchid]);
-      if (vetoInfo.length) {
-        mapName = vetoInfo[event.map_number]?.map;
-      } else {
+      const vetoInfo: RowDataPacket[] = await db.query(sqlString, [event.matchid]);
+      mapName = vetoInfo[event.map_number]?.map;
+      if (!mapName) {
         sqlString = "SELECT veto_mappool FROM `match` WHERE id = ?";
-        matchInfo = await db.query(sqlString, [event.matchid]);
-        mapName = matchInfo[0].veto_mappool.split(" ")[event.map_number];
+        const matchInfo: RowDataPacket[] = await db.query(sqlString, [event.matchid]);
+        mapName = parseMapPool(matchInfo[0]?.veto_mappool)[event.map_number];
       }
-      sqlString =
-        "SELECT id FROM map_stats WHERE match_id = ? AND map_number = ?";
-      mapStatInfo = await db.query(sqlString, [
-        event.matchid,
-        event.map_number
-      ]);
-      if (mapStatInfo.length) {
-        insUpdStatement = {
-          map_number: event.map_number,
-          map_name: mapName
-        };
-        sqlString =
-          "UPDATE map_stats SET ? WHERE match_id = ? AND map_number = ?";
-        insUpdStatement = await db.buildUpdateStatement(insUpdStatement);
-        await db.query(sqlString, [insUpdStatement, event.matchid, event.map_number]);
+      const mapStat = await getMapStat(event.matchid, event.map_number);
+      if (mapStat) {
+        // Map restarted or the event was sent again: keep the row, refresh the map name.
+        insUpdStatement = await db.buildUpdateStatement({ map_name: mapName });
+        if (Object.keys(insUpdStatement).length > 0) {
+          await db.query("UPDATE map_stats SET ? WHERE id = ?", [insUpdStatement, mapStat.id]);
+        }
       } else {
         insUpdStatement = {
           match_id: event.matchid,
@@ -85,21 +112,19 @@ class MapFlowService {
           team1_score: 0,
           team2_score: 0
         };
-        sqlString = "INSERT INTO map_stats SET ?";
-        await db.query(sqlString, insUpdStatement);
-        GlobalEmitter.emit("mapStatUpdate");
-        return res.status(200).send({ message: "Success" });
+        insUpdStatement = await db.buildUpdateStatement(insUpdStatement);
+        // A going_live sent twice at once: the unique (match_id, map_number) key keeps one row.
+        await db.query("INSERT INTO map_stats SET ? ON DUPLICATE KEY UPDATE id = id", insUpdStatement);
       }
+      GlobalEmitter.emit("mapStatUpdate", event.matchid);
+      return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
-      if (error instanceof Error)
-        return res.status(500).send({ message: error.message });
-      else return res.status(500).send({ message: error });
+      return sendError(res, error);
     }
   }
 
   /**
-   * Updates the database and emits playerStatsUpdate when a player has died.
+   * Updates the database and emits playerStatsExtraUpdate when a player has died.
    * @param {Get5_OnPlayerDeath} event The Get5_OnPlayerDeath event provided from the game server.
    * @param {Response} res The express response object to send status responses to the game server.
    */
@@ -114,32 +139,26 @@ class MapFlowService {
           .send({ message: "Bot players do not count towards stats." });
         return;
       }
-      let sqlString: string;
-      let mapInfo: RowDataPacket[];
-      let insertObj: object;
-      let playerTeamId: RowDataPacket[];
-      let playerStatVals: RowDataPacket[];
-      sqlString =
-        "SELECT id FROM map_stats WHERE match_id = ? AND map_number = ?";
-      mapInfo = await db.query(sqlString, [event.matchid, event.map_number]);
-
-      sqlString =
-        "SELECT team_id FROM team_auth_names JOIN `match` m " +
-        "ON (m.team1_id = team_id OR m.team2_id = team_id) WHERE m.id = ? AND auth = ?";
-      playerTeamId = await db.query(sqlString, [event.matchid, event.player.steamid]);
-      insertObj = {
+      const mapStat = await getMapStat(event.matchid, event.map_number);
+      if (!mapStat) {
+        return res.status(200).send({ message: "Map is not live yet, kill ignored." });
+      }
+      // attacker, weapon and assist are null for world damage, the bomb and suicides.
+      const attacker = event.attacker;
+      let insertObj: object = {
         match_id: event.matchid,
-        map_id: mapInfo[0].id,
-        team_id: playerTeamId[0].team_id,
-        player_steam_id: event.player.steamid,
-        player_name: event.player.name,
-        player_side: event.player.side,
+        map_id: mapStat.id,
+        team_id: await getPlayerTeamId(event.matchid, event.player?.steamid),
+        player_steam_id: event.player?.steamid,
+        player_name: event.player?.name?.slice(0, 75),
+        player_side: event.player?.side ?? "",
         round_number: event.round_number,
-        round_time: event.round_time,
-        attacker_steam_id: event.attacker.steamid,
-        attacker_name: event.attacker.name,
-        attacker_side: event.attacker.side,
-        weapon: event.weapon.name,
+        round_time: event.round_time ?? 0,
+        attacker_steam_id: attacker && !attacker.is_bot ? attacker.steamid : null,
+        attacker_name: attacker?.name?.slice(0, 75),
+        attacker_side: attacker?.side,
+        // Column is varchar(15); some CS2 knife names are longer.
+        weapon: (event.weapon?.name ?? (event.bomb ? "planted_c4" : "world")).slice(0, 15),
         bomb: event.bomb,
         headshot: event.headshot,
         thru_smoke: event.thru_smoke,
@@ -147,24 +166,19 @@ class MapFlowService {
         no_scope: event.no_scope,
         suicide: event.suicide,
         friendly_fire: event.friendly_fire,
-        assister_steam_id: event.assist?.player.steamid,
-        assister_name: event.assist?.player.name,
-        assister_side: event.assist?.player.side,
+        assister_steam_id: event.assist?.player?.steamid,
+        assister_name: event.assist?.player?.name?.slice(0, 75),
+        assister_side: event.assist?.player?.side,
         assist_friendly_fire: event.assist?.friendly_fire,
         flash_assist: event.assist?.flash_assist
       };
       insertObj = await db.buildUpdateStatement(insertObj);
-      sqlString = "INSERT INTO player_stat_extras SET ?";
-      await db.query(sqlString, insertObj);
+      await db.query("INSERT INTO player_stat_extras SET ?", insertObj);
 
-      GlobalEmitter.emit("playerStatsUpdate");
+      GlobalEmitter.emit("playerStatsExtraUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
-      if (error instanceof Error)
-        return res.status(500).send({ message: error.message });
-      else return res.status(500).send({ message: error });
-      
+      return sendError(res, error);
     }
   }
 
@@ -180,7 +194,6 @@ class MapFlowService {
   ) {
     try {
       let sqlString: string;
-      let mapInfo: RowDataPacket[];
       let playerStatInfo: RowDataPacket[];
       let insObject: object;
       if (event.player?.is_bot) {
@@ -189,37 +202,31 @@ class MapFlowService {
           .send({ message: "Bot players do not count towards stats." });
         return;
       }
-      sqlString =
-        "SELECT id FROM map_stats WHERE match_id = ? AND map_number = ?";
-      mapInfo = await db.query(sqlString, [event.matchid, event.map_number]);
+      const mapStat = await getMapStat(event.matchid, event.map_number);
+      if (!mapStat) {
+        return res.status(200).send({ message: "Map is not live yet, bomb event ignored." });
+      }
       sqlString =
         "SELECT id FROM player_stats WHERE match_id = ? AND map_id = ? AND steam_id = ?";
       playerStatInfo = await db.query(sqlString, [
         event.matchid,
-        mapInfo[0].id,
+        mapStat.id,
         event.player.steamid
       ]);
       // If player does not have player stats yet, insert them.
-      if (!playerStatInfo.length && !event.player?.is_bot) {
-        let teamId: RowDataPacket[];
-        sqlString =
-          "SELECT t.id FROM team t JOIN team_auth_names ta ON ta.team_id = t.id WHERE ta.auth = ?";
-        teamId = await db.query(sqlString, [event.player.steamid]);
-        await Utils.updatePlayerStats(event.matchid, teamId[0].id, mapInfo[0].id, event.player, null);
-
-        // Grab player info again!
-        sqlString =
-          "SELECT id FROM player_stats WHERE match_id = ? AND map_id = ? AND steam_id = ?";
+      if (!playerStatInfo.length) {
+        const teamId = await getPlayerTeamId(event.matchid, event.player.steamid);
+        await Utils.updatePlayerStats(event.matchid, teamId as any, mapStat.id, event.player, null);
         playerStatInfo = await db.query(sqlString, [
           event.matchid,
-          mapInfo[0].id,
+          mapStat.id,
           event.player.steamid
         ]);
       }
       insObject = {
         match_id: event.matchid,
-        map_id: mapInfo[0].id,
-        player_stats_id: playerStatInfo[0].id,
+        map_id: mapStat.id,
+        player_stats_id: playerStatInfo[0]?.id,
         round_number: event.round_number,
         round_time: event.round_time,
         site: event.site,
@@ -228,15 +235,11 @@ class MapFlowService {
       };
 
       insObject = await db.buildUpdateStatement(insObject);
-      sqlString = "INSERT INTO match_bomb_plants SET ?";
-      await db.query(sqlString, insObject);
-      GlobalEmitter.emit("bombEvent");
+      await db.query("INSERT INTO match_bomb_plants SET ?", insObject);
+      GlobalEmitter.emit("bombEvent", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
-      if (error instanceof Error)
-        return res.status(500).send({ message: error.message });
-      else return res.status(500).send({ message: error });
+      return sendError(res, error);
     }
   }
 
@@ -250,81 +253,103 @@ class MapFlowService {
     res: Response
   ) {
     try {
-      let sqlString: string =
-        "SELECT id FROM map_stats WHERE match_id = ? AND map_number = ?";
-      let insUpdStatement: object;
-      let mapStatInfo: RowDataPacket[];
-      let matchSeasonInfo: RowDataPacket[];
-      let playerStats: RowDataPacket[];
+      let sqlString: string;
       let singlePlayerStat: RowDataPacket[];
 
-      mapStatInfo = await db.query(sqlString, [
-        event.matchid,
-        event.map_number
-      ]);
+      const mapStat = await getMapStat(event.matchid, event.map_number);
+      if (!mapStat) {
+        return res.status(200).send({ message: "Map is not live yet, round ignored." });
+      }
       sqlString =
-        "SELECT * FROM player_stats WHERE match_id = ? AND map_id = ?";
-      playerStats = await db.query(sqlString, [
-        event.matchid,
-        mapStatInfo[0]?.id
+        "SELECT id, steam_id FROM player_stats WHERE match_id = ? AND map_id = ?";
+      const playerStats: RowDataPacket[] = await db.query(sqlString, [event.matchid, mapStat.id]);
+      // Stats in round_end are cumulative for the map, so each player's row is simply overwritten.
+      for (const team of [event.team1, event.team2]) {
+        for (const player of team.players ?? []) {
+          if (player.is_bot) continue;
+          singlePlayerStat = playerStats.filter(
+            (dbPlayer) => dbPlayer.steam_id == player.steamid
+          );
+          await Utils.updatePlayerStats(
+            event.matchid,
+            team.id,
+            mapStat.id,
+            player,
+            singlePlayerStat[0]?.id
+          );
+        }
+      }
+      GlobalEmitter.emit("playerStatsUpdate", event.matchid);
+
+      // Rounds played so far, from the score (doesn't depend on how MatchZy numbers rounds).
+      const roundsPlayed: number = (Number(event.team1.score) || 0) + (Number(event.team2.score) || 0);
+      // MatchZy's team objects carry no side; the winner's side tells which side team 1 played this round.
+      const winnerSide = normalizeSide(event.winner?.side);
+      const team1Side: string | null =
+        winnerSide == null
+          ? null
+          : event.winner?.team === "team1"
+            ? winnerSide
+            : event.winner?.team === "team2"
+              ? winnerSide === "ct" ? "t" : "ct"
+              : null;
+      await db.query("UPDATE map_stats SET ? WHERE id = ?", [
+        {
+          team1_score: event.team1.score,
+          team2_score: event.team2.score,
+          round_number: roundsPlayed,
+          team1_side: team1Side
+        },
+        mapStat.id
       ]);
-      for (let player of event.team1.players) {
-        singlePlayerStat = playerStats.filter(
-          (dbPlayer) => dbPlayer.steam_id == player.steamid
+      // Round history; a round replayed after a backup restore replaces its row.
+      if (roundsPlayed > 0) {
+        await db.query(
+          "INSERT INTO match_round (match_id, map_id, round_number, event_round, winner, winner_side, reason, team1_score, team2_score, round_time) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE event_round = VALUES(event_round), winner = VALUES(winner), winner_side = VALUES(winner_side), " +
+            "reason = VALUES(reason), team1_score = VALUES(team1_score), team2_score = VALUES(team2_score), round_time = VALUES(round_time)",
+          [
+            event.matchid,
+            mapStat.id,
+            roundsPlayed,
+            Number.isFinite(Number(event.round_number)) ? Number(event.round_number) : null,
+            event.winner?.team === "team1" || event.winner?.team === "team2" ? event.winner.team : null,
+            winnerSide,
+            Number.isFinite(Number(event.reason)) ? Number(event.reason) : null,
+            event.team1.score,
+            event.team2.score,
+            Number.isFinite(Number(event.round_time)) ? Number(event.round_time) : null
+          ]
         );
-        await Utils.updatePlayerStats(
-          event.matchid,
-          event.team1.id,
-          mapStatInfo[0].id,
-          player,
-          singlePlayerStat[0]?.id
-        );
+        // A restore to an earlier round drops the rounds after it.
+        await db.query("DELETE FROM match_round WHERE map_id = ? AND round_number > ?", [mapStat.id, roundsPlayed]);
       }
-      for (let player of event.team2.players) {
-        singlePlayerStat = playerStats.filter(
-          (dbPlayer) => dbPlayer.steam_id == player.steamid
-        );
-        await Utils.updatePlayerStats(
-          event.matchid,
-          event.team2.id,
-          mapStatInfo[0].id,
-          player,
-          singlePlayerStat[0]?.id
-        );
-      }
-      GlobalEmitter.emit("playerStatsUpdate");
-      
-      // Update map stats. Grab season info
-      sqlString = "UPDATE map_stats SET ? WHERE id = ?";
-      insUpdStatement = {
-        team1_score: event.team1.score,
-        team2_score: event.team2.score
-      }
-      await db.query(sqlString, [insUpdStatement, mapStatInfo[0].id]);
-      // Update Challonge info if needed.
+      GlobalEmitter.emit("mapStatUpdate", event.matchid);
+      GlobalEmitter.emit("matchUpdate", event.matchid);
+
+      // Live Challonge scores for BO1s. A Challonge outage must not fail the round for the game server.
       sqlString = "SELECT max_maps, season_id FROM `match` WHERE id = ?";
-      matchSeasonInfo = await db.query(sqlString, [event.matchid]);
-      if (matchSeasonInfo[0]?.season_id && matchSeasonInfo[0].max_maps == 1) {
-        await update_challonge_match(
-          event.matchid,
-          matchSeasonInfo[0].season_id,
-          +event.team1.id,
-          +event.team2.id,
-          matchSeasonInfo[0].max_maps
-        );
+      const matchSeasonInfo: RowDataPacket[] = await db.query(sqlString, [event.matchid]);
+      if (matchSeasonInfo[0]?.max_maps == 1) {
+        try {
+          await update_challonge_match(
+            event.matchid,
+            matchSeasonInfo[0].season_id ?? null,
+            +event.team1.id,
+            +event.team2.id,
+            matchSeasonInfo[0].max_maps
+          );
+        } catch (challongeError) {
+          logger.error({ err: challongeError }, "Challonge update failed");
+        }
       }
-      GlobalEmitter.emit("mapStatUpdate");
 
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
-      if (error instanceof Error)
-        return res.status(500).send({ message: error.message });
-      else return res.status(500).send({ message: error });
+      return sendError(res, error);
     }
   }
-
-  
 
   /**
    * Updates the database and emits playerStatsUpdate when a round has been restored and the match has started again.
@@ -335,31 +360,35 @@ class MapFlowService {
     event: Get5_OnRoundStart,
     res: Response
   ) {
-    let sqlString: string;
-    let mapStatInfo: RowDataPacket[];
-    // Check if round was backed up and nuke the additional player stats and bomb plants.
-    sqlString = "SELECT round_restored, id FROM map_stats WHERE match_id = ? AND map_number = ?";
-    mapStatInfo = await db.query(sqlString, [event.matchid, event.map_number]);
-    if (mapStatInfo[0]?.round_restored) {
-      sqlString =
-        "DELETE FROM match_bomb_plants WHERE round_number > ? AND match_id = ? AND map_id = ?";
-      await db.query(sqlString, [
-        event.round_number,
-        event.matchid,
-        mapStatInfo[0].id
-      ]);
+    try {
+      let sqlString: string;
+      // After a backup restore, drop the kills and bomb events of the rounds that are being replayed.
+      const mapStat = await getMapStat(event.matchid, event.map_number);
+      if (mapStat?.round_restored) {
+        sqlString =
+          "DELETE FROM match_bomb_plants WHERE round_number > ? AND match_id = ? AND map_id = ?";
+        await db.query(sqlString, [
+          event.round_number,
+          event.matchid,
+          mapStat.id
+        ]);
 
-      sqlString =
-        "DELETE FROM player_stat_extras WHERE match_id = ? AND map_id = ? AND round_number > ?";
-      await db.query(sqlString, [
-        event.matchid,
-        mapStatInfo[0].id,
-        event.round_number
-      ]);
-      // Only emit if there was an actual update.
-      GlobalEmitter.emit("playerStatsUpdate");
+        sqlString =
+          "DELETE FROM player_stat_extras WHERE match_id = ? AND map_id = ? AND round_number > ?";
+        await db.query(sqlString, [
+          event.matchid,
+          mapStat.id,
+          event.round_number
+        ]);
+        await db.query("UPDATE map_stats SET round_restored = 0 WHERE id = ?", [mapStat.id]);
+        // Only emit if there was an actual update.
+        GlobalEmitter.emit("playerStatsExtraUpdate", event.matchid);
+        GlobalEmitter.emit("bombEvent", event.matchid);
+      }
+      return res.status(200).send({ message: "Success" });
+    } catch (error: unknown) {
+      return sendError(res, error);
     }
-    return res.status(200).send({ message: "Success" });
   }
 
   /**
@@ -371,44 +400,38 @@ class MapFlowService {
     event: Get5_OnMatchPausedUnpaused,
     res: Response
   ) {
-    let sqlString: string;
-    let matchInfo: RowDataPacket[];
-    let pauseInfo: RowDataPacket[];
-    let insUpdStatement: object;
-    let teamPaused: string;
+    try {
+      let sqlString: string;
+      let insUpdStatement: object;
+      let teamPaused: string;
 
-    sqlString = "SELECT team1_string, team2_string FROM `match` WHERE id = ?";
-    matchInfo = await db.query(sqlString, [event.matchid]);
+      sqlString = "SELECT team1_string, team2_string FROM `match` WHERE id = ?";
+      const matchInfo: RowDataPacket[] = await db.query(sqlString, [event.matchid]);
 
-    sqlString = "SELECT * FROM match_pause WHERE match_id = ?";
-    pauseInfo = await db.query(sqlString, [event.matchid]);
+      sqlString = "SELECT id FROM match_pause WHERE match_id = ?";
+      const pauseInfo: RowDataPacket[] = await db.query(sqlString, [event.matchid]);
 
-    if (event.team == "team1") teamPaused = matchInfo[0].team1_string;
-    else if (event.team == "team2") teamPaused = matchInfo[0].team1_string;
-    else teamPaused = "Admin";
+      if (event.team == "team1") teamPaused = matchInfo[0]?.team1_string;
+      else if (event.team == "team2") teamPaused = matchInfo[0]?.team2_string;
+      else teamPaused = "Admin";
 
-    if (pauseInfo.length) {
-      sqlString = "UPDATE match_pause SET ? WHERE match_id = ?";
       insUpdStatement = {
         pause_type: event.pause_type,
         team_paused: teamPaused,
-        paused: event.event == "game_paused" ? true : false
+        paused: event.event == "game_paused"
       };
-      insUpdStatement = await db.buildUpdateStatement(insUpdStatement);
-      await db.query(sqlString, [insUpdStatement, event.matchid]);
-    } else {
-      sqlString = "INSERT INTO match_pause SET ?";
-      insUpdStatement = {
-        match_id: event.matchid,
-        pause_type: event.pause_type,
-        team_paused: teamPaused,
-        paused: event.event == "game_paused" ? true : false
-      };
-      insUpdStatement = await db.buildUpdateStatement(insUpdStatement);
-      await db.query(sqlString, insUpdStatement);
+      if (pauseInfo.length) {
+        insUpdStatement = await db.buildUpdateStatement(insUpdStatement);
+        await db.query("UPDATE match_pause SET ? WHERE match_id = ?", [insUpdStatement, event.matchid]);
+      } else {
+        insUpdStatement = await db.buildUpdateStatement({ match_id: event.matchid, ...insUpdStatement });
+        await db.query("INSERT INTO match_pause SET ?", insUpdStatement);
+      }
+      GlobalEmitter.emit("matchUpdate", event.matchid);
+      return res.status(200).send({ message: "Success" });
+    } catch (error: unknown) {
+      return sendError(res, error);
     }
-    GlobalEmitter.emit("matchUpdate");
-    return res.status(200).send({ message: "Success" });
   }
 }
 

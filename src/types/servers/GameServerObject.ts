@@ -7,5 +7,6 @@ export interface GameServerObject {
     display_name?: string,
     public_server?: number,
     flag?: string,
-    gotv_port?: number
+    gotv_port?: number,
+    join_password?: string
 }

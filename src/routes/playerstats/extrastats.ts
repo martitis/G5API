@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /playerstatsextras
- * description: Express API for player additional stats in Get5 matches.
+ * description: Express API for player additional stats in MatchZy matches.
  */
  import { Router } from "express";
  
@@ -11,11 +11,12 @@
  
  import Utils from "../../utility/utils.js";
  
- import GlobalEmitter from "../../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { PlayerInfo } from "../../types/playerstats/PlayerObject.js";
 import { Response } from "express-serve-static-core";
 
+import logger from "../../utility/logger.js";
  /* Swagger shared definitions */
 /**
  * @swagger
@@ -139,8 +140,7 @@ import { Response } from "express-serve-static-core";
       }
       res.json({ playerStatExtra });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
 });
 
@@ -176,22 +176,17 @@ import { Response } from "express-serve-static-core";
  router.get("/:steam_id", async (req, res, next) => {
   try {
     let steamID: string = req.params.steam_id;
-    let sql: string = "SELECT id FROM player_stats WHERE steam_id = ?"
-    let extraSql: string = "SELECT * FROM player_stat_extras where id IN (?)";
-    const playerIds: RowDataPacket[] = await db.query(sql, [steamID]);
-    if (!playerIds.length) {
-      res.status(404).json({ message: "No stats found for player " + steamID });
-      return;
-    }
-    const extrastats: RowDataPacket[] = await db.query(extraSql, [playerIds]);
+    // Every kill the player was part of, as the victim or the attacker.
+    let extraSql: string =
+      "SELECT * FROM player_stat_extras WHERE player_steam_id = ? OR attacker_steam_id = ?";
+    const extrastats: RowDataPacket[] = await db.query(extraSql, [steamID, steamID]);
     if (!extrastats.length) {
       res.status(404).json({ message: "No extra stats found for player " + steamID });
       return;
     }
     res.json({ extrastats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -229,8 +224,7 @@ import { Response } from "express-serve-static-core";
     let steamID: string = req.params.steam_id;
     return getIdFromMatches(steamID, 1, null, res);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -268,8 +262,7 @@ import { Response } from "express-serve-static-core";
     let steamID: string = req.params.steam_id;
     return getIdFromMatches(steamID, 0, null, res);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -312,8 +305,7 @@ import { Response } from "express-serve-static-core";
       let seasonID: number = parseInt(req.params.season_id);
       return getIdFromMatches(steamID, 0, seasonID, res);
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
 });
 
@@ -357,8 +349,7 @@ import { Response } from "express-serve-static-core";
     }
     res.json({ extrastats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -415,20 +406,21 @@ import { Response } from "express-serve-static-core";
       res.write(playerString);
     };
 
-    GlobalEmitter.on("playerStatsExtraUpdate", playerStreamStats);
+    const playerStreamStatsForMatch = forMatch(matchID, playerStreamStats);
+    GlobalEmitter.on("playerStatsExtraUpdate", playerStreamStatsForMatch);
 
     res.write(playerString);
     req.on("close", () => {
-      GlobalEmitter.removeListener("playerStatsExtraUpdate", playerStreamStats);
+      GlobalEmitter.removeListener("playerStatsExtraUpdate", playerStreamStatsForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("playerStatsExtraUpdate", playerStreamStats);
+      GlobalEmitter.removeListener("playerStatsExtraUpdate", playerStreamStatsForMatch);
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    logger.error(err);
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -521,7 +513,6 @@ import { Response } from "express-serve-static-core";
         attacker_side: req.body[0].attacker_side,
         weapon: req.body[0].weapon,
         bomb: req.body[0].bomb,
-        deaths: req.body[0].deaths,
         headshot: req.body[0].headshot,
         thru_smoke: req.body[0].thru_smoke,
         attacker_blind: req.body[0].attacker_blind,
@@ -546,7 +537,7 @@ import { Response } from "express-serve-static-core";
       });
     }
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -628,7 +619,6 @@ import { Response } from "express-serve-static-core";
         attacker_side: req.body[0].attacker_side,
         weapon: req.body[0].weapon,
         bomb: req.body[0].bomb,
-        deaths: req.body[0].deaths,
         headshot: req.body[0].headshot,
         thru_smoke: req.body[0].thru_smoke,
         attacker_blind: req.body[0].attacker_blind,
@@ -643,25 +633,25 @@ import { Response } from "express-serve-static-core";
       };
       // Remove any values that may not be updated.
       updateStmt = await db.buildUpdateStatement(updateStmt) as PlayerInfo;
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });
         return;
       }
       let sql: string =
-        "UPDATE player_stat_extras SET ? WHERE map_id = ? AND match_id = ? AND player_stat_id = ?";
+        "UPDATE player_stat_extras SET ? WHERE map_id = ? AND match_id = ? AND id = ?";
       const updatedPlayerStats: RowDataPacket[] = await db.query(sql, [
         updateStmt,
         req.body[0].map_id,
         req.body[0].match_id,
-        req.body[0].player_stat_id,
+        req.body[0].id,
       ]);
       //@ts-ignore
       if (updatedPlayerStats.affectedRows > 0) {
         res.json({ message: "Extra Player Stats were updated successfully!" });
       } else {
-        sql = "INSERT INTO player_stats SET ?";
+        sql = "INSERT INTO player_stat_extras SET ?";
         // Update values to include match/map/steam_id.
         updateStmt.player_steam_id = req.body[0].player_steam_id;
         updateStmt.map_id = req.body[0].map_id;
@@ -674,8 +664,7 @@ import { Response } from "express-serve-static-core";
       return;
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -716,22 +705,21 @@ import { Response } from "express-serve-static-core";
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", async (req, res, next) => {
+router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
-    if (req.body[0].match_id == null) {
+    if (req.body[0]?.match_id == null) {
       res.status(412).json({ message: "Required Data Not Provided" });
       return;
     }
     let currentMatchInfo: string =
-      "SELECT mtch.user_id as user_id, mtch.cancelled as cancelled, mtch.forfeit as forfeit, mtch.end_time as mtch_end_time, mtch.api_key as mtch_api_key FROM `match` mtch, map_stats mstat WHERE mtch.id=?";
-    const matchRow: RowDataPacket[] = await db.query(currentMatchInfo, req.body[0].match_id);
+      "SELECT user_id, cancelled, forfeit, end_time as mtch_end_time FROM `match` WHERE id = ?";
+    const matchRow: RowDataPacket[] = await db.query(currentMatchInfo, [req.body[0].match_id]);
     if (!matchRow.length) {
       res.status(404).json({ message: "No player stats data found." });
       return;
     } else if (
-      req.user &&
-      matchRow[0].user_id != req.user.id &&
-      !Utils.superAdminCheck(req.user)
+      matchRow[0].user_id != req.user!.id &&
+      !Utils.superAdminCheck(req.user!)
     ) {
       res
         .status(403)
@@ -742,7 +730,7 @@ router.delete("/", async (req, res, next) => {
       matchRow[0].forfeit == 1 ||
       matchRow[0].mtch_end_time != null
     ) {
-      let deleteSql: string = "DELETE FROM player_stat_extras; WHERE match_id = ?";
+      let deleteSql: string = "DELETE FROM player_stat_extras WHERE match_id = ?";
       const delRows: RowDataPacket[] = await db.query(deleteSql, [
         req.body[0].match_id,
       ]);
@@ -761,8 +749,7 @@ router.delete("/", async (req, res, next) => {
       return;
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -776,33 +763,16 @@ router.delete("/", async (req, res, next) => {
 * @param {object} [res] - The response to send back to the client.
 */
 const getIdFromMatches = async (steamId: string, isPug: boolean | number, seasonId: number | null, res: Response<any, Record<string, any>, number>) => {
-    let pugSql: string = 
-      `SELECT id
-        FROM player_stats 
-        WHERE steam_id = ?
-        AND match_id IN (
-        SELECT id FROM \`match\`
-        WHERE cancelled = 0
-        AND is_pug = ?
-      )`;
-    if (seasonId) {
-      pugSql = 
-      `SELECT id
-      FROM player_stats 
-      WHERE steam_id = ?
-      AND match_id IN (
-        SELECT id FROM \`match\`
-        WHERE cancelled = 0
-        AND season_id = ?
-      )`;
-    }
-    let playerIds: RowDataPacket[] = await db.query(pugSql, [steamId, isPug, seasonId]);
-    let extraSql: string = "SELECT * FROM player_stat_extras where id IN (?)";
-    if (!playerIds.length) {
-      res.status(404).json({ message: "No stats found for player " + steamId });
-      return;
-    }
-    const extrastats: RowDataPacket[] = await db.query(extraSql, [playerIds]);
+    // Every kill the player was part of (victim or attacker) in non-cancelled matches of the season, or PUG/official.
+    const extraSql: string =
+      "SELECT pse.* FROM player_stat_extras pse JOIN `match` m ON m.id = pse.match_id " +
+      "WHERE (pse.player_steam_id = ? OR pse.attacker_steam_id = ?) AND m.cancelled = 0 AND " +
+      (seasonId ? "m.season_id = ?" : "m.is_pug = ?");
+    const extrastats: RowDataPacket[] = await db.query(extraSql, [
+      steamId,
+      steamId,
+      seasonId ? seasonId : isPug ? 1 : 0
+    ]);
     if (!extrastats.length) {
       res.status(404).json({ message: "No extra stats found for player " + steamId });
       return;

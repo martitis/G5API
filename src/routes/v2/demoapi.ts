@@ -18,7 +18,7 @@ import JSZip from "jszip";
 /** Required to save files.
  * @const
  */
-import { existsSync, mkdirSync, writeFile } from "fs";
+import { mkdir, writeFile } from "fs/promises";
 
 /** Config to check demo uploads.
  * @const
@@ -37,6 +37,7 @@ import { RowDataPacket } from "mysql2";
  */
 import GlobalEmitter from "../../utility/emitter.js";
 
+import logger from "../../utility/logger.js";
 /** Express module
  * @const
  */
@@ -54,13 +55,13 @@ const router: Router = Router();
  *       - v2
  *     parameters:
  *      - in: header
- *        name: Get5-FileName
+ *        name: MatchZy-FileName
  *        description: Name of the file as defined by get5_demo_name_format
  *        schema:
  *          type: string
  *        required: true
  *      - in: header
- *        name: Get5-MapNumber
+ *        name: MatchZy-MapNumber
  *        description: Zero-indexed map number in the series.
  *        schema:
  *          type: string
@@ -72,7 +73,7 @@ const router: Router = Router();
  *          type: string
  *        required: true
  *      - in: header
- *        name: Get5-MatchId
+ *        name: MatchZy-MatchId
  *        description: The ID of the match.
  *        schema:
  *          type: string
@@ -99,14 +100,20 @@ router.post("/", async (req: Request, res: Response) => {
   }
   try {
     const apiKey: string | undefined = req.get("Authorization");
-    const matchId: string | undefined = req.get("Get5-MatchId");
-    const mapNumber: string | undefined = req.get("Get5-MapNumber");
-    const demoFilename: string | undefined = req.get("Get5-FileName");
+    const matchId: string | undefined = req.get("MatchZy-MatchId") ?? req.get("Get5-MatchId");
+    const mapNumber: string | undefined = req.get("MatchZy-MapNumber") ?? req.get("Get5-MapNumber");
+    // Only the base name is used, so a header can never point outside public/demos.
+    const demoFilename: string | undefined = (req.get("MatchZy-FileName") ?? req.get("Get5-FileName"))
+      ?.split(/[\\/]/)
+      .pop();
     // Check that the values have made it across.
     if (!apiKey || !matchId || !mapNumber || !demoFilename) {
       return res
         .status(401)
         .send({ message: "API key, Match ID, or Map Number not provided." });
+    }
+    if (!/^\d+$/.test(matchId) || !/^\d+$/.test(mapNumber) || !/^[\w.-]+\.dem$/.test(demoFilename)) {
+      return res.status(412).send({ message: "Invalid match ID, map number or demo file name." });
     }
     // Check if our API key is correct.
     const matchApiCheck: number = await Utils.checkApiKey(apiKey, matchId);
@@ -137,30 +144,29 @@ router.post("/", async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Demo can no longer be uploaded." });
     }
 
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(412).send({ message: "Demo file is empty or not sent as application/octet-stream." });
+    }
+    const zipFilename: string = demoFilename.replace(/\.dem$/, ".zip");
     zip.file(demoFilename, req.body, { binary: true });
-    zip
-      .generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
-      .then((buf) => {
-        writeFile("public/demos/" + demoFilename.replace(".dem", ".zip"), buf, "binary", function (err) {
-          if (err) {
-            console.error(err);
-            throw err;
-          }
-        });
-      });
+    const zipBuffer: Buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    await mkdir("public/demos", { recursive: true });
+    await writeFile("public/demos/" + zipFilename, zipBuffer);
     // Update map stats object to include the link to the demo.
     updateStmt = {
-      demoFile: demoFilename.replace(".dem", ".zip")
+      demoFile: zipFilename
     };
     updateStmt = await db.buildUpdateStatement(updateStmt);
 
     sqlString = "UPDATE map_stats SET ? WHERE id = ?";
     await db.query(sqlString, [updateStmt, mapInfo[0].id]);
-    GlobalEmitter.emit("demoUpdate");
+    // A successful upload clears an earlier "failed" (buildUpdateStatement drops nulls, so separately).
+    await db.query("UPDATE map_stats SET demo_status = NULL WHERE id = ?", [mapInfo[0].id]);
+    GlobalEmitter.emit("mapStatUpdate");
     res.status(200).send({message: "Success"});
     return;
   } catch (error) {
-    console.error(error);
+    logger.error(error);
     res.status(500).send({ message: error });
     return;
   }

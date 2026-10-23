@@ -6,11 +6,13 @@ import { Get5_OnSidePicked } from "../types/series_flow/veto/Get5_OnSidePicked.j
 import { Get5_OnBackupRestore } from "../types/series_flow/Get5_OnBackupRestore.js";
 import { Get5_OnMapResult } from "../types/series_flow/Get5_OnMapResult.js";
 import GlobalEmitter from "../utility/emitter.js";
+import { onMatchChanged } from "./tournaments.js";
 import { RowDataPacket } from "mysql2";
 import { Response } from "express";
 import Utils from "../utility/utils.js";
 import update_challonge_match from "../services/challonge.js";
 
+import logger from "../utility/logger.js";
 class SeriesFlowService {
   static async OnSeriesResult(event: Get5_OnSeriesResult, res: Response) {
     try {
@@ -79,7 +81,7 @@ class SeriesFlowService {
           };
           mapStatSql = "INSERT map_stats SET ?";
           newMapStatObject = await db.query(mapStatSql, [newMapStatStmt]);
-          mapStatInfoId = newMapStatObject[0].insert_id;
+          mapStatInfoId = (newMapStatObject as any).insertId;
         }
         await Utils.updatePugStats(
           event.matchid,
@@ -90,21 +92,28 @@ class SeriesFlowService {
         );
       }
 
-      // Check if a match has a season ID and we're not cancelled.
-      if (matchInfo[0].season_id && !cancelled) {
-        await update_challonge_match(
-          event.matchid,
-          matchInfo[0].season_id,
-          matchInfo[0].team1_id,
-          matchInfo[0].team2_id,
-          matchInfo[0].max_maps,
-          event.winner.team
-        );
+      // Challonge, when the match's tournament or season is linked to one.
+      // A Challonge outage must not fail the series result for the game server.
+      if (!cancelled) {
+        try {
+          await update_challonge_match(
+            event.matchid,
+            matchInfo[0].season_id ?? null,
+            matchInfo[0].team1_id,
+            matchInfo[0].team2_id,
+            matchInfo[0].max_maps,
+            event.winner?.team
+          );
+        } catch (challongeError) {
+          logger.error({ err: challongeError }, "Challonge update failed");
+        }
       }
-      GlobalEmitter.emit("matchUpdate");
+      // Advances the match's tournament bracket (never throws).
+      await onMatchChanged(event.matchid);
+      GlobalEmitter.emit("matchUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -170,10 +179,10 @@ class SeriesFlowService {
         );
       }
 
-      GlobalEmitter.emit("mapStatUpdate");
+      GlobalEmitter.emit("mapStatUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -190,7 +199,7 @@ class SeriesFlowService {
       );
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -207,7 +216,7 @@ class SeriesFlowService {
       );
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -244,9 +253,9 @@ class SeriesFlowService {
         }
         sqlString = "SELECT name FROM team WHERE id = ?";
         nameResRow = await db.query(sqlString, [teamBanId!]);
-        teamPickMapString = nameResRow[0].name;
+        teamPickMapString = nameResRow[0]?.name ?? teamPickMapString;
         nameResRow = await db.query(sqlString, [teamPickId!]);
-        teamPickSideString = nameResRow[0].name;
+        teamPickSideString = nameResRow[0]?.name ?? teamPickSideString;
       }
 
       // Retrieve veto id with team name and map veto.
@@ -271,10 +280,10 @@ class SeriesFlowService {
       insertObj = await db.buildUpdateStatement(insertObj);
       sqlString = "INSERT INTO veto_side SET ?";
       await db.query(sqlString, [insertObj]);
-      GlobalEmitter.emit("vetoSideUpdate");
+      GlobalEmitter.emit("vetoSideUpdate", event.matchid);
       return res.status(200).send({ message: "Success" });
     } catch (error: unknown) {
-      console.error(error);
+      logger.error(error);
       if (error instanceof Error)
         return res.status(500).send({ message: error.message });
       else return res.status(500).send({ message: error });
@@ -288,21 +297,27 @@ class SeriesFlowService {
     // and mark a value that will ensure the remaining player stats are updated as such.
     // The main chunk of update logic will then take place in the map flow service, on the OnRoundEnd function
     // as we get all the player information from that call.
-    let sqlString: string =
-      "DELETE FROM player_stat_extras " +
-      "WHERE match_id = ? AND " +
-      "map_id = (SELECT id FROM map_stats WHERE match_id = ? AND map_number = ?) AND " +
-      "round_number >= ?";
-    await db.query(sqlString, [
-      event.matchid,
-      event.matchid,
-      event.map_number,
-      event.round_number
-    ]);
-    sqlString =
-      "UPDATE `map_stats` SET round_restored = 1 WHERE match_id = ? AND map_number = ?";
-    await db.query(sqlString, [event.matchid, event.map_number]);
-    return res.status(200).send({ message: "Success" });
+    try {
+      // Kills and bomb events of the restored round onwards are replayed, so drop them now.
+      for (const table of ["player_stat_extras", "match_bomb_plants"]) {
+        await db.query(
+          `DELETE FROM ${table} WHERE match_id = ? AND ` +
+            "map_id = (SELECT id FROM map_stats WHERE match_id = ? AND map_number = ?) AND " +
+            "round_number >= ?",
+          [event.matchid, event.matchid, event.map_number, event.round_number]
+        );
+      }
+      await db.query(
+        "UPDATE `map_stats` SET round_restored = 1 WHERE match_id = ? AND map_number = ?",
+        [event.matchid, event.map_number]
+      );
+      GlobalEmitter.emit("playerStatsExtraUpdate", event.matchid);
+      GlobalEmitter.emit("bombEvent", event.matchid);
+      return res.status(200).send({ message: "Success" });
+    } catch (error: unknown) {
+      logger.error(error);
+      return res.status(500).send({ message: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   private static async insertPickOrBan(
@@ -329,7 +344,7 @@ class SeriesFlowService {
     } else {
       sqlString = "SELECT name FROM team WHERE id = ?";
       teamInfo = await db.query(sqlString, [teamId]);
-      teamString = teamInfo[0].name;
+      teamString = teamInfo[0]?.name ?? team;
     }
 
     // All values should be present, no need to remove any unneeded variables.
@@ -342,7 +357,7 @@ class SeriesFlowService {
 
     sqlString = "INSERT INTO veto SET ?";
     await db.query(sqlString, [insertObj]);
-    GlobalEmitter.emit("vetoUpdate");
+    GlobalEmitter.emit("vetoUpdate", matchid);
   }
 }
 

@@ -15,7 +15,7 @@ describe("Test the season routes", () => {
     // Min required data.
     let newSeasonData = [
       {
-        name: "Phlex's Temp Season",
+        name: "Temp Season",
         start_date: new Date().toISOString().slice(0, 10).replace('T', ' ')
       }
     ];
@@ -33,7 +33,7 @@ describe("Test the season routes", () => {
     // Min required data.
     let newSeasonData = [
       {
-        name: "Phlex's Bad Actor",
+        name: "Bad Actor Season",
         start_date: new Date().toISOString().slice(0, 10).replace('T', ' ')
       }
     ];

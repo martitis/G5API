@@ -33,9 +33,11 @@ export default tseslint.config(
       "no-useless-catch": "warn",
       "no-useless-assignment": "warn",
       "no-unsafe-finally": "warn",
-      "@typescript-eslint/no-misused-promises": "warn",
+      // Async route handlers are safe: src/utility/asyncErrors.ts forwards their rejections to Express.
+      "@typescript-eslint/no-misused-promises": ["warn", { checksVoidReturn: { arguments: false } }],
       "@typescript-eslint/no-floating-promises": "warn",
-      "@typescript-eslint/no-unused-vars": "warn",
+      // A leading underscore marks parameters that must exist (e.g. Express error handlers).
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/unbound-method": "warn",
       "@typescript-eslint/ban-ts-comment": "warn",
       "@typescript-eslint/no-unnecessary-type-assertion": "warn",

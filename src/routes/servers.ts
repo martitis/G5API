@@ -1,18 +1,29 @@
 /**
  * @swagger
  * resourcePath: /servers
- * description: Express API router for servers in get5.
+ * description: Express API router for game servers.
  */
 
 import { Router } from "express";
 
 const router = Router();
 
+/** Characters that are safe in sv_password and in a steam://connect/ip:port/password link. */
+const JOIN_PASSWORD = /^[A-Za-z0-9_.\-!@*+=~]{1,64}$/;
+
+/** The join password from a request: "" = none, undefined = not given, null = invalid. */
+function joinPassword(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return "";
+  return typeof value === "string" && JOIN_PASSWORD.test(value) ? value : null;
+}
+
 import {db} from "../services/db.js";
 
 import GameServer from "../utility/serverrcon.js";
 
 import Utils from "../utility/utils.js";
+import { audited, firstBody } from "../utility/audit.js";
 import { RowDataPacket } from "mysql2";
 import { GameServerObject } from "../types/servers/GameServerObject.js";
 
@@ -93,24 +104,18 @@ router.get("/", Utils.ensureAuthenticated, async (req, res, next) => {
     let sql: string;
     if (req.user && Utils.superAdminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.ip_string, gs.port, gs.rcon_password, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id";
     } else if (req.user && Utils.adminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port  FROM game_server gs, user usr WHERE usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id";
     } else {
       sql =
-        "SELECT gs.id, gs.in_use, gs.display_name, usr.name, gs.public_server, gs.flag FROM game_server gs, user usr WHERE gs.public_server=1 AND usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.display_name, usr.name, gs.public_server, gs.flag FROM game_server gs, user usr WHERE gs.public_server=1 AND usr.id = gs.user_id";
     }
     let servers: RowDataPacket[] = await db.query(sql);
-    if (req.user && Utils.superAdminCheck(req.user)) {
-      for (let serverRow of servers) {
-        serverRow.rcon_password = Utils.decrypt(serverRow.rcon_password);
-      }
-    }
     res.json({ servers });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -144,8 +149,7 @@ router.get("/", Utils.ensureAuthenticated, async (req, res, next) => {
     let servers: RowDataPacket[] = await db.query(sql);
     res.json({ "servers": servers[0].cnt });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -180,28 +184,22 @@ router.get("/available", Utils.ensureAuthenticated, async (req, res, next) => {
     let servers: RowDataPacket[];
     if (req.user && Utils.superAdminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.ip_string, gs.port, gs.rcon_password, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.in_use=0";
+        "SELECT gs.id, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.in_use=0";
     } else if (req.user && Utils.adminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.in_use=0";
+        "SELECT gs.id, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.in_use=0";
     } else if (req.user) {
       sql =
-        "SELECT gs.id, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND (gs.public_server=1 OR gs.user_id = ?) AND gs.in_use=0";
+        "SELECT gs.id, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, IF(gs.user_id = ?, gs.join_password, NULL) AS join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND (gs.public_server=1 OR gs.user_id = ?) AND gs.in_use=0";
     } else {
       sql =
         "SELECT gs.id, gs.display_name, usr.name, usr.id as user_id, gs.flag FROM game_server gs, user usr WHERE gs.public_server=1 AND usr.id = gs.user_id AND gs.in_use=0";
     }
-    if (req.user) servers = await db.query(sql, [req.user.id]);
+    if (req.user) servers = await db.query(sql, [req.user.id, req.user.id]);
     else servers = await db.query(sql);
-    if (req.user && Utils.superAdminCheck(req.user)) {
-      for (let serverRow of servers) {
-        serverRow.rcon_password = Utils.decrypt(serverRow.rcon_password);
-      }
-    }
     res.json({ servers });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -233,15 +231,11 @@ router.get("/myservers", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     // Check if admin, if they are use this query.
     let sql: string =
-      "SELECT gs.id, gs.in_use, gs.ip_string, gs.port, gs.rcon_password, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND usr.id=?";
+      "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND usr.id=?";
     let servers: RowDataPacket[] = await db.query(sql, [req.user?.id]);
-    for (let serverRow of servers) {
-      serverRow.rcon_password = Utils.decrypt(serverRow.rcon_password);
-    }
     res.json({ servers });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -284,11 +278,11 @@ router.get("/:server_id", Utils.ensureAuthenticated, async (req, res, next) => {
     let server: RowDataPacket[];
     if (req.user && Utils.superAdminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.ip_string, gs.port, gs.rcon_password, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ?";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ?";
       server = await db.query(sql, [serverID]);
     } else {
       sql =
-        "SELECT gs.id, gs.in_use, gs.ip_string, gs.port, gs.rcon_password, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ? AND usr.id = ?";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ? AND usr.id = ?";
       server = await db.query(sql, [serverID, req.user?.id]);
     }
     if (server.length < 1) {
@@ -302,13 +296,61 @@ router.get("/:server_id", Utils.ensureAuthenticated, async (req, res, next) => {
         res.status(404).json({ message: "Server not found." });
       }
     } else {
-      server[0].rcon_password = Utils.decrypt(server[0].rcon_password);
       server = JSON.parse(JSON.stringify(server[0]));
       res.json({ server });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /servers/:server_id/rcon:
+ *   get:
+ *     description: Reveals the RCON password of a server. Only for the server owner or a super admin.
+ *     produces:
+ *       - application/json
+ *     parameters:
+ *       - name: server_id
+ *         required: true
+ *         schema:
+ *          type: integer
+ *     tags:
+ *       - servers
+ *     responses:
+ *       200:
+ *         description: The RCON password.
+ *         content:
+ *           application/json:
+ *             schema:
+ *                type: object
+ *                properties:
+ *                  rcon_password:
+ *                    type: string
+ *       403:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.get("/:server_id/rcon", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    const server: RowDataPacket[] = await db.query(
+      "SELECT user_id, rcon_password FROM game_server WHERE id = ?",
+      [parseInt(req.params.server_id)]
+    );
+    if (!server.length) {
+      res.status(404).json({ message: "Server not found." });
+      return;
+    }
+    if (server[0].user_id != req.user!.id && !Utils.superAdminCheck(req.user!)) {
+      res.status(403).json({ message: "User is not authorized to perform action." });
+      return;
+    }
+    res.json({ rcon_password: Utils.decrypt(server[0].rcon_password) });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -385,8 +427,98 @@ router.get(
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
+    }
+  }
+);
+
+/**
+ * @swagger
+ *
+ * /servers/:server_id/practice:
+ *   post:
+ *     description: >
+ *       Starts (css_prac) or stops (css_exitprac) MatchZy practice mode. Body - action ("start" or "stop"). Starting
+ *       needs a free server and marks it in use, so no match is loaded onto it; stopping frees it. Owner, super admin,
+ *       or an admin on a public server.
+ *     tags:
+ *       - servers
+ *     responses:
+ *       200:
+ *         description: "{ message, response } - response is the server's RCON reply"
+ *       403:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         description: The server is in use (start) or not in practice mode (stop).
+ */
+router.post(
+  "/:server_id/practice",
+  Utils.ensureAuthenticated,
+  audited("server.practice", {
+    target: (req) => ({ type: "server", id: Number(req.params.server_id) || null }),
+    detail: (req) => String(firstBody(req).action ?? "")
+  }),
+  async (req, res, next) => {
+    try {
+      const action = firstBody(req).action;
+      if (action !== "start" && action !== "stop") {
+        res.status(412).json({ message: 'Action must be "start" or "stop".' });
+        return;
+      }
+      const rows: RowDataPacket[] = await db.query(
+        "SELECT id, user_id, ip_string, port, rcon_password, public_server, in_use, practice_mode FROM game_server WHERE id = ?",
+        [parseInt(req.params.server_id)]
+      );
+      if (!rows.length) {
+        res.status(404).json({ message: "Server not found." });
+        return;
+      }
+      const server = rows[0];
+      const allowed =
+        server.user_id == req.user!.id ||
+        Utils.superAdminCheck(req.user!) ||
+        (Boolean(server.public_server) && Utils.adminCheck(req.user!));
+      if (!allowed) {
+        res.status(403).json({ message: "User is not authorized to perform action." });
+        return;
+      }
+      const gameServer = new GameServer(server.ip_string, server.port, server.rcon_password);
+      if (action === "start") {
+        // Claim the server first, so a match can't be loaded onto it in between.
+        const claim: any = await db.query(
+          "UPDATE game_server SET in_use = 1, practice_mode = 1 WHERE id = ? AND in_use = 0",
+          [server.id]
+        );
+        if (!claim.affectedRows) {
+          res.status(409).json({ message: "The server is in use." });
+          return;
+        }
+        try {
+          const response = await gameServer.sendRconCommand("css_prac");
+          res.json({ message: "Practice mode started.", response });
+        } catch {
+          await db.query("UPDATE game_server SET in_use = 0, practice_mode = 0 WHERE id = ?", [server.id]);
+          res.status(502).json({ message: "The server did not respond. Check that it is online and the RCON password is correct." });
+        }
+        return;
+      }
+      if (!server.practice_mode) {
+        res.status(409).json({ message: "The server is not in practice mode." });
+        return;
+      }
+      let response = "";
+      try {
+        response = await gameServer.sendRconCommand("css_exitprac");
+      } catch {
+        // Freed anyway: an offline server is not practicing any more.
+        response = "The server did not respond.";
+      }
+      await db.query("UPDATE game_server SET in_use = 0, practice_mode = 0 WHERE id = ?", [server.id]);
+      res.json({ message: "Practice mode stopped.", response });
+    } catch (err) {
+      next(err);
     }
   }
 );
@@ -421,7 +553,7 @@ router.get(
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/", Utils.ensureAuthenticated, audited("server.create", { target: (req, body) => ({ type: "server", id: body?.id ?? null }), detail: (req) => `${firstBody(req).display_name ?? ""} ${firstBody(req).ip_string ?? ""}:${firstBody(req).port ?? ""}` }), async (req, res, next) => {
   try {
     let insertServer: RowDataPacket[];
     let userId: number = req.user!.id;
@@ -432,8 +564,13 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
     let publicServer: number = req.body[0].public_server;
     let flagCode: string = req.body[0].flag;
     let gotvPort: number = req.body[0].gotv_port;
+    const join = joinPassword(req.body[0].join_password);
+    if (join === null) {
+      res.status(412).json({ message: "The join password may use letters, digits and _ . - ! @ * + = ~ (up to 64)." });
+      return;
+    }
     let sql: string =
-      "INSERT INTO game_server (user_id, ip_string, port, rcon_password, display_name, public_server, flag, gotv_port) VALUES (?,?,?,?,?,?,?,?)";
+      "INSERT INTO game_server (user_id, ip_string, port, rcon_password, display_name, public_server, flag, gotv_port, join_password) VALUES (?,?,?,?,?,?,?,?,?)";
     insertServer = await db.query(sql, [
       userId,
       ipString,
@@ -443,6 +580,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       publicServer,
       flagCode,
       gotvPort,
+      join || null,
     ]);
     let ourServer: GameServer = new GameServer(
       req.body[0].ip_string,
@@ -463,8 +601,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -504,7 +641,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("server.update", { target: (req) => ({ type: "server", id: Number(firstBody(req).server_id) || null }), detail: (req) => Object.keys(firstBody(req)).filter((k) => k !== "server_id" && k !== "rcon_password").join(", ") + (firstBody(req).rcon_password ? ", rcon password" : "") }), async (req, res, next) => {
   try {
     let userCheckSql: string = "SELECT user_id FROM game_server WHERE id = ?";
     let userId: number = req.user!.id;
@@ -523,22 +660,29 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       return;
     } else {
       let serverId: number = req.body[0].server_id;
+      const join = joinPassword(req.body[0].join_password);
+      if (join === null) {
+        res.status(412).json({ message: "The join password may use letters, digits and _ . - ! @ * + = ~ (up to 64)." });
+        return;
+      }
       let updateStmt: GameServerObject = {
         ip_string: req.body[0].ip_string,
         port: req.body[0].port,
         display_name: req.body[0].display_name,
-        rcon_password:
-          req.body[0].rcon_password == null
-            ? null
-            : Utils.encrypt(req.body[0].rcon_password),
+        // RCON passwords are never sent to the client, so an empty field means "keep the current one".
+        rcon_password: !req.body[0].rcon_password
+          ? null
+          : Utils.encrypt(req.body[0].rcon_password),
         public_server: req.body[0].public_server,
         user_id: req.body[0].user_id,
         flag: req.body[0].flag,
         gotv_port: req.body[0].gotv_port,
+        // "" clears it (stored as an empty string, read as none).
+        join_password: join,
       };
       // Remove any unwanted nulls.
       updateStmt = await db.buildUpdateStatement(updateStmt);
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res.status(412).json({
           message: "No update data has been provided.",
         });
@@ -559,7 +703,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
             ? serveInfo[0].ip_string
             : req.body[0].ip_string,
           req.body[0].port == null ? serveInfo[0].port : req.body[0].port,
-          req.body[0].rcon_password == null
+          !req.body[0].rcon_password
             ? serveInfo[0].rcon_password
             : Utils.encrypt(req.body[0].rcon_password)
         );
@@ -575,8 +719,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       } else throw "ERROR - Game server not updated.";
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -616,7 +759,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.delete("/", Utils.ensureAuthenticated, audited("server.delete", { target: (req) => ({ type: "server", id: Number(firstBody(req).server_id) || null }) }), async (req, res, next) => {
   try {
     let userCheckSql: string = "SELECT user_id, in_use FROM game_server WHERE id = ?";
     const checkUser: RowDataPacket[] = await db.query(userCheckSql, [req.body[0].server_id]);
@@ -656,8 +799,7 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
       }
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 

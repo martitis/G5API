@@ -5,11 +5,11 @@
 /** AES Module for Encryption/Decryption
  * @const
  */
-import pkg from 'aes-js';
+import pkg from "aes-js";
 const { utils, ModeOfOperation } = pkg;
 
 /** Crypto for assigning random  */
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 
 /** Config to get database key.
  * @const
@@ -26,13 +26,14 @@ const steam = new SteamAPI(config.get("server.steamAPIKey"));
  */
 import { ID } from "@node-steam/id";
 
-import {db} from "../services/db.js";
-import { RowDataPacket } from 'mysql2';
-import { NextFunction, Request, Response } from 'express';
-import { Get5_Player } from '../types/Get5_Player.js';
-import { User } from "../types/User.js"
-import { AccessMessage } from '../types/mapstats/AccessMessage.js';
+import { db } from "../services/db.js";
+import { RowDataPacket } from "mysql2";
+import { NextFunction, Request, Response } from "express";
+import { Get5_Player } from "../types/Get5_Player.js";
+import { User } from "../types/User.js";
+import { AccessMessage } from "../types/mapstats/AccessMessage.js";
 
+import logger from "./logger.js";
 class Utils {
   /** Function to get an HLTV rating for a user.
    * @function
@@ -76,7 +77,7 @@ class Utils {
 
       return +rating.toFixed(2);
     } catch (err) {
-      console.error("HELPER getRating Failed -- " + err);
+      logger.error({ err }, "HELPER getRating Failed");
       return 0;
     }
   }
@@ -112,7 +113,7 @@ class Utils {
       let decryptedText = utils.utf8.fromBytes(decryptedBytes);
       return decryptedText;
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       // fail silently.
       return null;
     }
@@ -139,7 +140,7 @@ class Utils {
       encryptedHex = hexIV + encryptedHex;
       return encryptedHex;
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       throw err;
     }
   }
@@ -147,39 +148,100 @@ class Utils {
    * @function
    * @memberof module:utils
    * @inner */
+  // this: void - passed to Express as a bare function (it never uses `this`).
   static async ensureAuthenticated(
+    this: void,
     req: Request,
     res: Response,
     next: NextFunction
   ) {
-    // Check the user based on API.
-    const apiKey = req.get("user-api") || req.body[0]?.user_api;
-    if (apiKey) {
-      let sqlQuery = "SELECT * FROM user WHERE id = ?";
-      const ourUser = await db.query(sqlQuery, apiKey.split(":")[0]);
-      if (ourUser.length > 0) {
-        let uncDb = Utils.decrypt(ourUser[0].api_key);
-        if (uncDb == apiKey.split(":")[1]) {
-          let curUser = {
-            steam_id: ourUser[0].steam_id,
-            name: ourUser[0].name,
-            super_admin: ourUser[0].super_admin,
-            admin: ourUser[0].admin,
-            id: ourUser[0].id,
-            small_image: ourUser[0].small_image,
-            medium_image: ourUser[0].medium_image,
-            large_image: ourUser[0].large_image,
-            api_key: apiKey.split(":")[1]
-          };
-          req.user = curUser;
-          return next();
+    try {
+      // Check the user based on API.
+      const apiKey = req.get("user-api") || req.body?.[0]?.user_api;
+      if (apiKey && typeof apiKey === "string") {
+        const [userId, providedKey] = apiKey.split(":");
+        let sqlQuery = "SELECT * FROM user WHERE id = ?";
+        const ourUser = await db.query(sqlQuery, [userId]);
+        if (ourUser.length > 0) {
+          let uncDb = Utils.decrypt(ourUser[0].api_key);
+          if (Utils.safeCompare(uncDb, providedKey)) {
+            let curUser = {
+              steam_id: ourUser[0].steam_id,
+              name: ourUser[0].name,
+              super_admin: ourUser[0].super_admin,
+              admin: ourUser[0].admin,
+              id: ourUser[0].id,
+              small_image: ourUser[0].small_image,
+              medium_image: ourUser[0].medium_image,
+              large_image: ourUser[0].large_image,
+              api_key: providedKey
+            };
+            req.user = curUser;
+            return next();
+          }
         }
       }
+      if (req.isAuthenticated()) {
+        return next();
+      }
+      res.status(401).json({ message: "Not logged in." });
+    } catch (err) {
+      next(err);
     }
-    if (req.isAuthenticated()) {
-      return next();
+  }
+
+  /** Constant-time string comparison for secrets (API keys).
+   * @function
+   * @memberof module:utils
+   * @inner
+   * @name safeCompare
+   * @returns false if either value is missing or they differ.
+   */
+  static safeCompare(
+    a: string | null | undefined,
+    b: string | null | undefined
+  ): boolean {
+    if (!a || !b) return false;
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+  }
+
+  /** Validates user-supplied cvars before they are stored and sent to MatchZy in the match config.
+   * Mirrors MatchZy's own rules (it drops cvars with quotes, semicolons or line breaks) and blocks cvars
+   * that would hand over the server or redirect the match's events, demos or backups elsewhere.
+   * @function
+   * @memberof module:utils
+   * @inner
+   * @name validateCvars
+   * @param {Object} cvars - { cvar_name: value }
+   * @returns An error message, or null when every cvar is acceptable.
+   */
+  static validateCvars(cvars: unknown): string | null {
+    if (cvars == null) return null;
+    if (typeof cvars !== "object" || Array.isArray(cvars)) return "Cvars must be an object of name/value pairs.";
+    const blocked = /^(rcon_password|sv_rcon_.*|matchzy_everyone_is_admin|.*_url|.*_header_(key|value))$/i;
+    for (const [name, value] of Object.entries(cvars as Record<string, unknown>)) {
+      if (!/^[A-Za-z0-9_]{1,64}$/.test(name)) return `Invalid cvar name: ${name}`;
+      if (blocked.test(name)) return `Cvar ${name} cannot be set from a match or season.`;
+      if (!["string", "number", "boolean"].includes(typeof value)) return `Invalid value for cvar ${name}.`;
+      const text = String(value);
+      // eslint-disable-next-line no-control-regex -- rejecting control characters is the point
+      if (text.length > 256 || /[";\x00-\x1f\x7f]/.test(text)) {
+        return `Invalid value for cvar ${name}: quotes, semicolons and line breaks are not allowed.`;
+      }
     }
-    res.redirect("/auth/steam");
+    return null;
+  }
+
+  /** Checks that a value is a SteamID64 of an individual account.
+   * @function
+   * @memberof module:utils
+   * @inner
+   * @name isSteamId64
+   */
+  static isSteamId64(value: unknown): value is string {
+    return typeof value === "string" && /^7656\d{13}$/.test(value);
   }
 
   /** Checks if a user is an admin in the system during their session.
@@ -190,8 +252,9 @@ class Utils {
    * @param {user} user - the users session object.
    */
   static adminCheck(user: User) {
-    if (user) return user.super_admin === 0 && user.admin === 0 ? false : true;
-    else return false;
+    // Flags arrive as 0/1 from MySQL but can be booleans or strings in a session; only a set flag counts
+    // (the old "=== 0" checks made false, "0" or a missing flag count as admin).
+    return Boolean(user) && (Number(user.admin) > 0 || Number(user.super_admin) > 0);
   }
 
   /** Checks if a user is a super admin in the system during their session.
@@ -202,8 +265,7 @@ class Utils {
    * @param {user} user - the users session object.
    */
   static superAdminCheck(user: User) {
-    if (user) return user.super_admin === 0 ? false : true;
-    else return false;
+    return Boolean(user) && Number(user.super_admin) > 0;
   }
 
   /** Converts a Steam ID to Steam64.
@@ -226,32 +288,41 @@ class Utils {
    * @inner
    * @name getSteamPID
    * @param {String} authString - String value of a steam username/profile/url/steamID.
-   * @returns A Steam64 value in string form, or nothing.
+   * @returns A Steam64 value in string form, or an empty string if it is not a valid individual SteamID64.
    */
-  static async getSteamPID(authString: string) {
+  static async getSteamPID(authString: string): Promise<string> {
+    if (typeof authString !== "string") return "";
     // Remove any https tags, as they aren't needed.
-    authString = authString.replace(new RegExp("^(http|https)://", "i"), "");
-    if (authString.includes("steamcommunity.com/id/")) {
-      let steamID = await steam.resolve(authString);
-      return steamID;
-    } else if (authString.includes("steamcommunity.com/profiles/")) {
-      return authString.split("/")[2];
-    } else if (authString.startsWith("STEAM_")) {
-      return this.convertToSteam64(authString);
-    } else if (authString.startsWith("1:0:") || authString.startsWith("1:1:")) {
-      return this.convertToSteam64("STEAM_" + authString);
-    } else if (authString.startsWith("[U:1:")) {
-      return this.convertToSteam64(authString);
-    } else if (authString.startsWith("U:1:")) {
-      return this.convertToSteam64("[" + authString + "]");
-    } else if (authString.startsWith("7656119")) {
-      return authString;
-    } else {
-      let steamID = await steam.resolve(
-        "steamcommunity.com/id/" + authString
-      );
-      return steamID;
+    authString = authString
+      .trim()
+      .replace(new RegExp("^(http|https)://", "i"), "");
+    let steamID: string;
+    try {
+      if (authString.includes("steamcommunity.com/id/")) {
+        steamID = await steam.resolve(authString);
+      } else if (authString.includes("steamcommunity.com/profiles/")) {
+        steamID = authString.split("/")[2];
+      } else if (authString.startsWith("STEAM_")) {
+        steamID = await this.convertToSteam64(authString);
+      } else if (
+        authString.startsWith("1:0:") ||
+        authString.startsWith("1:1:")
+      ) {
+        steamID = await this.convertToSteam64("STEAM_" + authString);
+      } else if (authString.startsWith("[U:1:")) {
+        steamID = await this.convertToSteam64(authString);
+      } else if (authString.startsWith("U:1:")) {
+        steamID = await this.convertToSteam64("[" + authString + "]");
+      } else if (authString.startsWith("7656119")) {
+        steamID = authString;
+      } else {
+        steamID = await steam.resolve("steamcommunity.com/id/" + authString);
+      }
+    } catch {
+      // Unknown vanity URL, or the Steam API is unavailable.
+      return "";
     }
+    return this.isSteamId64(steamID) ? steamID : "";
   }
   /** Retrieves a profile name from steam.
    * @function
@@ -266,6 +337,22 @@ class Utils {
       let summaryInfo = await steam.getUserSummary(auth64);
       // @ts-expect-error
       return summaryInfo.nickname;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Name and medium avatar of a Steam account in one request (null when Steam can't be asked).
+   * @function
+   * @memberof module:utils
+   * @inner
+   * @name getSteamProfile
+   * @param {String} auth64 - String value of a steam 64 ID.
+   */
+  static async getSteamProfile(auth64: string): Promise<{ name: string; image: string } | null> {
+    try {
+      const summary = (await steam.getUserSummary(auth64)) as { nickname: string; avatar: { medium: string } };
+      return { name: summary.nickname, image: summary.avatar.medium };
     } catch {
       return null;
     }
@@ -364,21 +451,18 @@ class Utils {
       let currentServerInfo = "SELECT user_id FROM game_server WHERE id = ?";
       const matchRow = await db.query(currentMatchInfo, [matchid]);
 
-      // If no server exists no need to check for info.
-      if (!matchRow[0].server_id) return retMessage;
-
-      const serverRow = await db.query(
-        currentServerInfo,
-        matchRow[0].server_id
-      );
       if (matchRow[0].user_id != user.id && !adminCheck) {
-        retMessage = {
+        return {
           status: 403,
           message: "User is not authorized to perform action."
         };
       }
-      if (serverCheck) {
-        if (!this.superAdminCheck(user) && serverRow[0].user_id != user.id) {
+      // Server ownership only matters when the match is on a server.
+      if (serverCheck && matchRow[0].server_id) {
+        const serverRow = await db.query(currentServerInfo, [
+          matchRow[0].server_id
+        ]);
+        if (!this.superAdminCheck(user) && serverRow[0]?.user_id != user.id) {
           retMessage = {
             status: 403,
             message: "User is not authorized to perform action."
@@ -399,14 +483,18 @@ class Utils {
    * @param {String|Number} matchid - The ID of a match
    * @returns An object containing the HTTP error, followed by a message.
    */
-  static async checkIfMatchExists(matchid: string | number): Promise<AccessMessage | null> {
+  static async checkIfMatchExists(
+    matchid: string | number
+  ): Promise<AccessMessage | null> {
     try {
       if (matchid == null) {
         return { status: 400, message: "Match ID Not Provided" };
       }
 
       let currentMatchInfo: string = "SELECT id FROM `match` WHERE id = ?";
-      const matchRow: RowDataPacket[] = await db.query(currentMatchInfo, [matchid]);
+      const matchRow: RowDataPacket[] = await db.query(currentMatchInfo, [
+        matchid
+      ]);
       if (!matchRow.length) {
         return { status: 404, message: "No match found." };
       }
@@ -516,6 +604,25 @@ class Utils {
   }
 
   /**
+   * Deletes everything a match produced while being played (maps, stats, kill feed, bombs, pauses, vetoes),
+   * children before parents so foreign keys hold. The match row itself is kept.
+   * @param {String|Number} matchId The match ID.
+   */
+  static async deleteMatchProgress(matchId: string | number): Promise<void> {
+    for (const table of [
+      "player_stat_extras",
+      "match_bomb_plants",
+      "match_pause",
+      "player_stats",
+      "veto_side",
+      "veto",
+      "map_stats"
+    ]) {
+      await db.query(`DELETE FROM ${table} WHERE match_id = ?`, [matchId]);
+    }
+  }
+
+  /**
    * Performs a check on the server to see if the provided API key is correct, and if the match has not been finalized.
    * @param {String} providedKey The API key sent by a user/game server.
    * @param {String|Number} matchId The match ID sent by the user/game server.
@@ -529,7 +636,8 @@ class Utils {
       "SELECT api_key, cancelled, end_time FROM `match` WHERE id = ?",
       [matchId]
     );
-    if (providedKey.localeCompare(matchInformation[0]?.api_key) !== 0) return 1;
+    // A missing match or key must never pass.
+    if (!Utils.safeCompare(providedKey, matchInformation[0]?.api_key)) return 1;
     else if (
       matchInformation[0]?.cancelled === 1 ||
       matchInformation[0]?.end_time != null
@@ -591,6 +699,7 @@ class Utils {
       firstkill_ct: player.stats?.first_kills_ct,
       firstkill_t: player.stats?.first_kills_t,
       kast: player.stats?.kast,
+      trade_kills: player.stats?.trade_kills,
       contribution_score: player.stats?.score,
       mvp: player.stats?.mvp
     };
@@ -606,6 +715,5 @@ class Utils {
     }
   }
 }
-
 
 export default Utils;

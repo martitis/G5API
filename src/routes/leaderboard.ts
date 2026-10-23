@@ -9,498 +9,337 @@
  * resourcePath: /leaderboard
  * description: Leaderboard calls from the database.
  */
- import { Router } from "express";
+import { Router } from "express";
 
- const router = Router();
- 
- import {db} from "../services/db.js";
- 
- import Utils from "../utility/utils.js";
+const router = Router();
+
+import { db } from "../services/db.js";
+
+import Utils from "../utility/utils.js";
 import { TeamStanding } from "../types/leaderboard/TeamStanding.js";
 import { Player } from "../types/leaderboard/Player.js";
- 
- /**
-  * @swagger
-  *
-  * components:
-  *   schemas:
-  *     SimpleResponse:
-  *       type: object
-  *       properties:
-  *         message:
-  *           type: string
-  *   responses:
-  *     BadRequest:
-  *       description: Bad request, information not provided.
-  *       content:
-  *         application/json:
-  *           schema:
-  *             $ref: '#/components/schemas/SimpleResponse'
-  *     NotFound:
-  *       description: The specified resource was not found.
-  *       content:
-  *         application/json:
-  *           schema:
-  *             $ref: '#/components/schemas/SimpleResponse'
-  *     Unauthorized:
-  *       description: Unauthorized.
-  *       content:
-  *         application/json:
-  *           schema:
-  *             $ref: '#/components/schemas/SimpleResponse'
-  *     Error:
-  *       description: Error
-  *       content:
-  *         application/json:
-  *           schema:
-  *             $ref: '#/components/schemas/SimpleResponse'
-  *     Success:
-  *       description: Success
-  *       content:
-  *         application/json:
-  *           schema:
-  *             $ref: '#/components/schemas/SimpleResponse'
-  */
- 
- /**
-  * @swagger
-  *
-  * /leaderboard/:
-  *   get:
-  *     description: Get lifetime leaderboard of teams
-  *     produces:
-  *       - application/json
-  *     tags:
-  *       - leaderboard
-  *     responses:
-  *       200:
-  *         description: Leaderboard
-  *         content:
-  *           application/json:
-  *             schema:
-  *               $ref: '#/components/schemas/SimpleResponse'
-  *       500:
-  *         $ref: '#/components/responses/Error'
-  */
- router.get("/", async (req, res) => {
-   try {
-     let leaderboard: TeamStanding[] = await getTeamLeaderboard();
-     res.json({ leaderboard });
-   } catch (err) {
-     console.error(err);
-     res.status(500).json({ message: err });
-   }
- });
- 
- /**
-  * @swagger
-  *
-  * /leaderboard/players:
-  *   get:
-  *     description: Get lifetime leaderboard for players
-  *     produces:
-  *       - application/json
-  *     tags:
-  *       - leaderboard
-  *     responses:
-  *       200:
-  *         description: Leaderboard
-  *         content:
-  *           application/json:
-  *             schema:
-  *               $ref: '#/components/schemas/SimpleResponse'
-  *       500:
-  *         $ref: '#/components/responses/Error'
-  */
- router.get("/players", async (req, res) => {
-   try {
-     let leaderboard: Player[] = await getPlayerLeaderboard();
-     res.json({ leaderboard });
-   } catch (err) {
-     console.error(err);
-     res.status(500).json({ message: err });
-   }
- });
- 
- /**
-  * @swagger
-  *
-  * /leaderboard/players/pug:
-  *   get:
-  *     description: Get lifetime leaderboard for players in pickup games.
-  *     produces:
-  *       - application/json
-  *     tags:
-  *       - leaderboard
-  *     responses:
-  *       200:
-  *         description: Leaderboard
-  *         content:
-  *           application/json:
-  *             schema:
-  *               $ref: '#/components/schemas/SimpleResponse'
-  *       500:
-  *         $ref: '#/components/responses/Error'
-  */
- router.get("/players/pug", async (req, res) => {
-   try {
-     let leaderboard: Player[] = await getPlayerLeaderboard(null, true);
-     res.json({ leaderboard });
-   } catch (err) {
-     console.error(err);
-     res.status(500).json({ message: err });
-   }
- });
- 
- /**
-  * @swagger
-  *
-  * /leaderboard/players/:season_id:
-  *   get:
-  *     description: Seasonal leaderboard for players
-  *     produces:
-  *       - application/json
-  *     parameters:
-  *       - name: season_id
-  *         required: true
-  *         schema:
-  *          type: string
-  *     tags:
-  *       - leaderboard
-  *     responses:
-  *       200:
-  *         description: Leaderboard
-  *         content:
-  *           application/json:
-  *             schema:
-  *               $ref: '#/components/schemas/SimpleResponse'
-  *       500:
-  *         $ref: '#/components/responses/Error'
-  */
- router.get("/players/:season_id", async (req, res) => {
-   try {
-     let seasonId: number = parseInt(req.params.season_id);
-     let leaderboard: Player[] = await getPlayerLeaderboard(seasonId);
-     res.json({ leaderboard });
-   } catch (err) {
-     console.error(err);
-     res.status(500).json({ message: err });
-   }
- });
- 
- /**
-  * @swagger
-  *
-  * /leaderboard/:season_id:
-  *   get:
-  *     description: Seasonal leaderboard for teams
-  *     produces:
-  *       - application/json
-  *     tags:
-  *       - leaderboard
-  *     parameters:
-  *       - name: season_id
-  *         required: true
-  *         schema:
-  *          type: string
-  *     responses:
-  *       200:
-  *         description: Leaderboard
-  *         content:
-  *           application/json:
-  *             schema:
-  *               $ref: '#/components/schemas/SimpleResponse'
-  *       500:
-  *         $ref: '#/components/responses/Error'
-  */
- router.get("/:season_id", async (req, res) => {
-   try {
-     let seasonId = parseInt(req.params.season_id);
-     let leaderboard = await getTeamLeaderboard(seasonId);
-     res.json({ leaderboard });
-   } catch (err) {
-     console.error(err);
-     res.status(500).json({ message: err });
-   }
- });
- 
- /** Function to get the current team leaderboard standings in a season, or all time.
-  * @function
-  * @memberof module:routes/leaderboard
-  * @param {string} [seasonId=null] - Season ID to filter.
-  * @inner */
- const getTeamLeaderboard = async (seasonId: number | null = null) => {
-   try {
-     /* Logic:
-      * 1. Get all matches.
-      * 2. Loops through each match id, and get all map stats.
-      * 3. Store all map stats for each unique team.
-      * 4. Return all stats. Doesn't matter if sorted, front-end should take care of it?
-      */
-     let allMatches = null;
-     let winningRounds,
-       losingRounds = 0;
-     let teamStandings: Array<TeamStanding> = [];
-     let matchSql = "";
-     if (!seasonId) {
-       matchSql =
-         "SELECT id, team1_id, team2_id FROM `match` WHERE end_time IS NOT NULL AND winner IS NOT NULL AND cancelled = false";
-       allMatches = await db.query(matchSql);
-     } else {
-       matchSql =
-         "SELECT id, team1_id, team2_id FROM `match` WHERE end_time IS NOT NULL AND winner IS NOT NULL AND cancelled = FALSE AND season_id = ?";
-       allMatches = await db.query(matchSql, [seasonId]);
-     }
-     for (let match of allMatches) {
-       let mapStatSql =
-         "SELECT * FROM map_stats WHERE match_id = ? AND winner IS NOT NULL";
-       let teamSelectSql = "SELECT id, name FROM team WHERE id = ?";
-       let winningTeam, losingTeam;
-       const mapStats = await db.query(mapStatSql, match.id);
-       for (let stats of mapStats) {
-         winningRounds = 0;
-         losingRounds = 0;
-         winningTeam = await db.query(teamSelectSql, [stats.winner]);
-         // If we don't have a team don't report to the team table.
-         // This means that it was a PUG and not an actual team.
-         if (winningTeam[0] == null) {
-           continue;
-         }
-         if (winningTeam[0].id === match.team1_id) {
-           losingTeam = await db.query(teamSelectSql, [match.team2_id]);
-         } else {
-           losingTeam = await db.query(teamSelectSql, [match.team1_id]);
-         }
-         // If winners or losers are deleted, continue on.
-         if (losingTeam[0] == null) {
-           continue;
-         }
-         if (winningTeam[0].id === match.team1_id) {
-           winningRounds += stats.team1_score;
-           losingRounds += stats.team2_score;
-         } else {
-           winningRounds += stats.team2_score;
-           losingRounds += stats.team1_score;
-         }
-         let winName = winningTeam[0].name;
-         let loseName = losingTeam[0].name;
-         // Instantiate the object, needed only once.
-         if (!teamStandings.some((el) => el.name === winName)) {
-           teamStandings.push({
-             name: winName,
-             wins: 0,
-             losses: 0,
-             rounddiff: 0,
-           });
-         }
-         if (!teamStandings.some((el) => el.name === loseName)) {
-           teamStandings.push({
-             name: loseName,
-             wins: 0,
-             losses: 0,
-             rounddiff: 0,
-           });
-         }
-         let winners: TeamStanding | undefined = teamStandings.find((team) => {
-           return team.name === winName;
-         });
-         winners!.wins += 1;
-         winners!.rounddiff += winningRounds - losingRounds;
-         let losers: TeamStanding | undefined = teamStandings.find((team) => {
-           return team.name === loseName;
-         });
-         losers!.losses += 1;
-         losers!.rounddiff += losingRounds - winningRounds;
-       }
-     }
-     return teamStandings;
-   } catch (err) {
-     console.log(err);
-     throw err;
-   }
- };
- 
- /** Function to get the current player leaderboard standings in a season, or all time.
-  * @function
-  * @memberof module:routes/leaderboard
-  * @param {string} [seasonId=null] - Season ID to filter.
-  */
- const getPlayerLeaderboard = async (seasonId: number | null = null, pug: boolean = false) => {
-   let allPlayers: Array<Player> = [];
-   let playerStats;
-   /* Logic:
-    * 1. Get all player values where match is not cancelled or forfeit.
-    * 2. Grab raw values, and calculate things like HSP and KDR for each user. Get names and cache 'em even.
-    * 3. Insert into list of objects for each user.
-    */
-   let playerStatSql =
-     `SELECT  steam_id, name, sum(kills) as kills,
-     sum(deaths) as deaths, sum(assists) as assists, sum(k1) as k1,
-     sum(k2) as k2, sum(k3) as k3,
-     sum(k4) as k4, sum(k5) as k5, sum(v1) as v1,
-     sum(v2) as v2, sum(v3) as v3, sum(v4) as v4,
-     sum(v5) as v5, sum(roundsplayed) as trp, sum(flashbang_assists) as fba,
-     sum(damage) as dmg, sum(headshot_kills) as hsk, count(id) as totalMaps,
-     sum(knife_kills) as knifekills, sum(friendlies_flashed) as fflash,
-     sum(enemies_flashed) as eflash, sum(util_damage) as utildmg
-     FROM    player_stats
-     WHERE   match_id IN (
-         SELECT  id
-         FROM    \`match\`
-         WHERE   cancelled=0
-         AND     is_pug=` +
-     pug +
-     `
-     )
-     GROUP BY steam_id, name`;
-   let playerStatSqlSeasons =
-     `SELECT  steam_id, name, sum(kills) as kills,
-     sum(deaths) as deaths, sum(assists) as assists, sum(k1) as k1,
-     sum(k2) as k2, sum(k3) as k3,
-     sum(k4) as k4, sum(k5) as k5, sum(v1) as v1,
-     sum(v2) as v2, sum(v3) as v3, sum(v4) as v4,
-     sum(v5) as v5, sum(roundsplayed) as trp, sum(flashbang_assists) as fba,
-     sum(damage) as dmg, sum(headshot_kills) as hsk, count(id) as totalMaps,
-     sum(knife_kills) as knifekills, sum(friendlies_flashed) as fflash,
-     sum(enemies_flashed) as eflash, sum(util_damage) as utildmg
-     FROM    player_stats
-     WHERE   match_id IN (
-         SELECT  id
-         FROM    \`match\`
-         WHERE   cancelled=0
-         AND season_id = ?
-         AND     is_pug=` +
-     pug +
-     `
-     )
-     GROUP BY steam_id, name`;
-   let winSql = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
-     JOIN player_stats pstat ON mtch.id = pstat.match_id 
-     WHERE pstat.team_id = mtch.winner and pstat.steam_id = ?
-     AND is_pug = ?`;
-   if (pug) {
-     winSql = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
-     JOIN player_stats pstat ON mtch.id = pstat.match_id 
-     WHERE pstat.steam_id = ? AND pstat.winner = 1 
-     AND is_pug = ?`;
-   }
-   let winSqlSeasons = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
-     JOIN player_stats pstat ON mtch.id = pstat.match_id 
-     WHERE pstat.team_id = mtch.winner and pstat.steam_id = ?
-     AND mtch.season_id = ? AND is_pug = ?`;
-   let numWins;
-   if (!seasonId) playerStats = await db.query(playerStatSql);
-   else playerStats = await db.query(playerStatSqlSeasons, [seasonId]);
-   for (let player of playerStats) {
-     // Players can have multiple names. Avoid collision by combining everything, then performing averages.
-     if (!allPlayers.some((el) => el.steamId === player.steam_id)) {
-       if (!seasonId) numWins = await db.query(winSql, [player.steam_id, pug]);
-       else
-         numWins = await db.query(winSqlSeasons, [
-           player.steam_id,
-           seasonId,
-           pug,
-         ]);
-       allPlayers.push({
-         steamId: player.steam_id,
-         name:
-           player.name == null
-             ? await Utils.getSteamName(player.steam_id)
-             : player.name.replace('/"/g', '\\"'),
-         kills: parseFloat(player.kills),
-         deaths: parseFloat(player.deaths),
-         assists: parseFloat(player.assists),
-         k1: parseFloat(player.k1),
-         k2: parseFloat(player.k2),
-         k3: parseFloat(player.k3),
-         k4: parseFloat(player.k4),
-         k5: parseFloat(player.k5),
-         v1: parseFloat(player.v1),
-         v2: parseFloat(player.v2),
-         v3: parseFloat(player.v3),
-         v4: parseFloat(player.v4),
-         v5: parseFloat(player.v5),
-         trp: parseFloat(player.trp),
-         fba: parseFloat(player.fba),
-         total_damage: parseFloat(player.dmg),
-         hsk: parseFloat(player.hsk),
-         hsp:
-           parseFloat(player.kills) === 0
-             ? 0
-             : +(
-                 (parseFloat(player.hsk) / parseFloat(player.kills)) *
-                 100
-               ).toFixed(2),
-         average_rating: Utils.getRating(
-           parseFloat(player.kills),
-           parseFloat(player.trp),
-           parseFloat(player.deaths),
-           parseFloat(player.k1),
-           parseFloat(player.k2),
-           parseFloat(player.k3),
-           parseFloat(player.k4),
-           parseFloat(player.k5)
-         ),
-         wins: numWins[0].wins,
-         total_maps: player.totalMaps,
-         enemies_flashed: parseFloat(player.eflash),
-         friendlies_flashed: parseFloat(player.fflash),
-         util_damage: parseFloat(player.utildmg),
-       });
-     } else {
-       let collisionPlayer = allPlayers.find((user) => {
-         return user.steamId === player.steam_id;
-       });
-       // Update name, or concat name?
-       if (player.name == "")
-         collisionPlayer!.name = (collisionPlayer!.name + "/" + player.name)
-           .replace(/\/+$/, "")
-           .replace('/"/g', '\\"');
-       else
-         collisionPlayer!.name = player.name
-           .replace(/\/+$/, "")
-           .replace('/"/g', '\\"');
-       collisionPlayer!.kills += parseFloat(player.kills);
-       collisionPlayer!.deaths += parseFloat(player.deaths);
-       collisionPlayer!.assists += parseFloat(player.assists);
-       collisionPlayer!.k1 += parseFloat(player.k1);
-       collisionPlayer!.k2 += parseFloat(player.k2);
-       collisionPlayer!.k3 += parseFloat(player.k3);
-       collisionPlayer!.k4 += parseFloat(player.k4);
-       collisionPlayer!.k5 += parseFloat(player.k5);
-       collisionPlayer!.v1 += parseFloat(player.v1);
-       collisionPlayer!.v2 += parseFloat(player.v2);
-       collisionPlayer!.v3 += parseFloat(player.v3);
-       collisionPlayer!.v4 += parseFloat(player.v4);
-       collisionPlayer!.v5 += parseFloat(player.v5);
-       collisionPlayer!.trp += parseFloat(player.trp);
-       collisionPlayer!.fba += parseFloat(player.fba);
-       collisionPlayer!.hsk += parseFloat(player.hsk);
-       collisionPlayer!.total_damage += parseFloat(player.dmg);
-       collisionPlayer!.total_maps += parseFloat(player.totalMaps);
-       collisionPlayer!.hsp =
-         collisionPlayer!.kills === 0
-           ? 0
-           : +(
-               (collisionPlayer!.hsk /
-                 collisionPlayer!.kills) *
-               100
-             ).toFixed(2);
-       collisionPlayer!.average_rating = Utils.getRating(
-         collisionPlayer!.kills,
-         collisionPlayer!.trp,
-         collisionPlayer!.k1,
-         collisionPlayer!.k2,
-         collisionPlayer!.k3,
-         collisionPlayer!.k4,
-         collisionPlayer!.k5
-       );
-       collisionPlayer!.enemies_flashed! += parseFloat(player.eflash);
-       collisionPlayer!.friendlies_flashed! += parseFloat(player.fflash);
-       collisionPlayer!.util_damage! += parseFloat(player.utildmg);
-     }
-   }
-   return allPlayers;
- };
- export default router;
- 
+import { RowDataPacket } from "mysql2";
+
+/**
+ * @swagger
+ *
+ * components:
+ *   schemas:
+ *     SimpleResponse:
+ *       type: object
+ *       properties:
+ *         message:
+ *           type: string
+ *   responses:
+ *     BadRequest:
+ *       description: Bad request, information not provided.
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/SimpleResponse'
+ *     NotFound:
+ *       description: The specified resource was not found.
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/SimpleResponse'
+ *     Unauthorized:
+ *       description: Unauthorized.
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/SimpleResponse'
+ *     Error:
+ *       description: Error
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/SimpleResponse'
+ *     Success:
+ *       description: Success
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/SimpleResponse'
+ */
+
+/**
+ * @swagger
+ *
+ * /leaderboard/:
+ *   get:
+ *     description: Get lifetime leaderboard of teams
+ *     produces:
+ *       - application/json
+ *     tags:
+ *       - leaderboard
+ *     responses:
+ *       200:
+ *         description: Leaderboard
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SimpleResponse'
+ *       500:
+ *         $ref: '#/components/responses/Error'
+ */
+router.get("/", async (req, res, next) => {
+  try {
+    let leaderboard: TeamStanding[] = await getTeamLeaderboard();
+    res.json({ leaderboard });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /leaderboard/players:
+ *   get:
+ *     description: Get lifetime leaderboard for players
+ *     produces:
+ *       - application/json
+ *     tags:
+ *       - leaderboard
+ *     responses:
+ *       200:
+ *         description: Leaderboard
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SimpleResponse'
+ *       500:
+ *         $ref: '#/components/responses/Error'
+ */
+router.get("/players", async (req, res, next) => {
+  try {
+    let leaderboard: Player[] = await getPlayerLeaderboard();
+    res.json({ leaderboard });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /leaderboard/players/pug:
+ *   get:
+ *     description: Get lifetime leaderboard for players in pickup games.
+ *     produces:
+ *       - application/json
+ *     tags:
+ *       - leaderboard
+ *     responses:
+ *       200:
+ *         description: Leaderboard
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SimpleResponse'
+ *       500:
+ *         $ref: '#/components/responses/Error'
+ */
+router.get("/players/pug", async (req, res, next) => {
+  try {
+    let leaderboard: Player[] = await getPlayerLeaderboard(null, true);
+    res.json({ leaderboard });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /leaderboard/players/:season_id:
+ *   get:
+ *     description: Seasonal leaderboard for players
+ *     produces:
+ *       - application/json
+ *     parameters:
+ *       - name: season_id
+ *         required: true
+ *         schema:
+ *          type: string
+ *     tags:
+ *       - leaderboard
+ *     responses:
+ *       200:
+ *         description: Leaderboard
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SimpleResponse'
+ *       500:
+ *         $ref: '#/components/responses/Error'
+ */
+router.get("/players/:season_id", async (req, res, next) => {
+  try {
+    let seasonId: number = parseInt(req.params.season_id);
+    let leaderboard: Player[] = await getPlayerLeaderboard(seasonId);
+    res.json({ leaderboard });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /leaderboard/:season_id:
+ *   get:
+ *     description: Seasonal leaderboard for teams
+ *     produces:
+ *       - application/json
+ *     tags:
+ *       - leaderboard
+ *     parameters:
+ *       - name: season_id
+ *         required: true
+ *         schema:
+ *          type: string
+ *     responses:
+ *       200:
+ *         description: Leaderboard
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SimpleResponse'
+ *       500:
+ *         $ref: '#/components/responses/Error'
+ */
+router.get("/:season_id", async (req, res, next) => {
+  try {
+    let seasonId = parseInt(req.params.season_id);
+    let leaderboard = await getTeamLeaderboard(seasonId);
+    res.json({ leaderboard });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Function to get the current team leaderboard standings in a season, or all time.
+ * @function
+ * @memberof module:routes/leaderboard
+ * @param {string} [seasonId=null] - Season ID to filter.
+ * @inner */
+const getTeamLeaderboard = async (seasonId: number | null = null) => {
+  /* One query: finished, decided series per team (by team id, so equal names stay separate).
+   * Wins and losses count series; rounddiff sums the round difference over every map of those series.
+   * PUG teams are deleted after their match, so they drop out through the JOIN on team.
+   */
+  const params: number[] = [];
+  let seasonFilter: string = "";
+  if (seasonId) {
+    seasonFilter = "AND m.season_id = ?";
+    params.push(seasonId);
+  }
+  const standings: RowDataPacket[] = await db.query(
+    `SELECT t.id, t.name,
+       COUNT(DISTINCT CASE WHEN m.winner = t.id THEN m.id END) AS wins,
+       COUNT(DISTINCT CASE WHEN m.winner <> t.id THEN m.id END) AS losses,
+       COALESCE(SUM(CASE WHEN m.team1_id = t.id THEN ms.team1_score - ms.team2_score
+                         ELSE ms.team2_score - ms.team1_score END), 0) AS rounddiff
+     FROM team t
+     JOIN \`match\` m ON (m.team1_id = t.id OR m.team2_id = t.id)
+     LEFT JOIN map_stats ms ON ms.match_id = m.id
+     WHERE m.end_time IS NOT NULL AND m.winner IS NOT NULL AND m.cancelled = 0 ${seasonFilter}
+     GROUP BY t.id, t.name`,
+    params
+  );
+  return standings.map((row): TeamStanding => ({
+    id: row.id,
+    name: row.name,
+    wins: Number(row.wins) || 0,
+    losses: Number(row.losses) || 0,
+    rounddiff: Number(row.rounddiff) || 0
+  }));
+};
+
+/** Function to get the current player leaderboard standings in a season, or all time.
+ * @function
+ * @memberof module:routes/leaderboard
+ * @param {string} [seasonId=null] - Season ID to filter.
+ */
+const getPlayerLeaderboard = async (
+  seasonId: number | null = null,
+  pug: boolean = false
+) => {
+  /* One aggregate query per leaderboard:
+   * - grouped by Steam ID only, so a player who changed names is one row (the latest name is shown)
+   * - wins count matches, not maps: official matches by the player's team, PUGs by player_stats.winner
+   */
+  const params: Array<number | boolean> = [pug ? 1 : 0];
+  let seasonFilter: string = "";
+  if (seasonId) {
+    seasonFilter = "AND m.season_id = ?";
+    params.push(seasonId);
+  }
+  const winCondition: string = pug ? "ps.winner = 1" : "ps.team_id = m.winner";
+  const playerStats: RowDataPacket[] = await db.query(
+    `SELECT ps.steam_id,
+       SUBSTRING_INDEX(GROUP_CONCAT(ps.name ORDER BY ps.id DESC SEPARATOR '\\n'), '\\n', 1) AS name,
+       SUM(ps.kills) AS kills, SUM(ps.deaths) AS deaths, SUM(ps.assists) AS assists,
+       SUM(ps.k1) AS k1, SUM(ps.k2) AS k2, SUM(ps.k3) AS k3, SUM(ps.k4) AS k4, SUM(ps.k5) AS k5,
+       SUM(ps.v1) AS v1, SUM(ps.v2) AS v2, SUM(ps.v3) AS v3, SUM(ps.v4) AS v4, SUM(ps.v5) AS v5,
+       SUM(ps.roundsplayed) AS trp, SUM(ps.flashbang_assists) AS fba,
+       SUM(ps.damage) AS dmg, SUM(ps.headshot_kills) AS hsk, COUNT(ps.id) AS totalMaps,
+       SUM(ps.friendlies_flashed) AS fflash, SUM(ps.enemies_flashed) AS eflash,
+       SUM(ps.util_damage) AS utildmg,
+       COUNT(DISTINCT CASE WHEN ${winCondition} THEN m.id END) AS wins
+     FROM player_stats ps
+     JOIN \`match\` m ON m.id = ps.match_id
+     WHERE m.cancelled = 0 AND m.is_pug = ? ${seasonFilter}
+     GROUP BY ps.steam_id`,
+    params
+  );
+  const allPlayers: Array<Player> = [];
+  for (const player of playerStats) {
+    const num = (value: any): number => parseFloat(value) || 0;
+    const kills = num(player.kills);
+    allPlayers.push({
+      steamId: player.steam_id,
+      name:
+        player.name ||
+        (await Utils.getSteamName(player.steam_id)) ||
+        player.steam_id,
+      kills,
+      deaths: num(player.deaths),
+      assists: num(player.assists),
+      k1: num(player.k1),
+      k2: num(player.k2),
+      k3: num(player.k3),
+      k4: num(player.k4),
+      k5: num(player.k5),
+      v1: num(player.v1),
+      v2: num(player.v2),
+      v3: num(player.v3),
+      v4: num(player.v4),
+      v5: num(player.v5),
+      trp: num(player.trp),
+      fba: num(player.fba),
+      total_damage: num(player.dmg),
+      hsk: num(player.hsk),
+      hsp: kills === 0 ? 0 : +((num(player.hsk) / kills) * 100).toFixed(2),
+      average_rating: Utils.getRating(
+        kills,
+        num(player.trp),
+        num(player.deaths),
+        num(player.k1),
+        num(player.k2),
+        num(player.k3),
+        num(player.k4),
+        num(player.k5)
+      ),
+      wins: num(player.wins),
+      total_maps: num(player.totalMaps),
+      enemies_flashed: num(player.eflash),
+      friendlies_flashed: num(player.fflash),
+      util_damage: num(player.utildmg)
+    });
+  }
+  return allPlayers;
+};
+export default router;

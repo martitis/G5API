@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /users
- * description: Express API router for users in get5.
+ * description: Express API router for users.
  */
 import { Router } from "express";
 
@@ -12,6 +12,7 @@ const router = Router();
 import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
+import { audited, firstBody } from "../utility/audit.js";
 
 import { generate } from "randomstring";
 import { RowDataPacket } from "mysql2";
@@ -60,9 +61,6 @@ import { UserObject } from "../types/users/UserObject.js";
  *         old_password:
  *           type: string
  *           description: The old password provided by the user to check validity.
- *         force_reset:
- *           type: boolean
- *           description: If a user requires a force reset/remove password, update the password to NULL. 
  *         challonge_api_key:
  *           type: string
  *           description: A [challonge API](https://challonge.com/settings/developer) key
@@ -97,15 +95,14 @@ import { UserObject } from "../types/users/UserObject.js";
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     let sql: string =
       "SELECT id, name, steam_id, small_image, medium_image, large_image FROM user";
     const users: RowDataPacket[] = await db.query(sql);
     res.json({ users });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -140,33 +137,33 @@ router.get("/", async (req, res) => {
 router.get("/:user_id", async (req, res, next) => {
   try {
     let userOrSteamID: string = req.params.user_id;
-    let sql: string;
-    if (
-      req.user != null &&
-      (req.user.id as string | number == userOrSteamID || Utils.superAdminCheck(req.user))
-    ) {
-      sql = "SELECT * FROM user WHERE id = ? OR steam_id = ?";
-    } else {
-      sql =
-        "SELECT id, name, steam_id, small_image, medium_image, large_image, admin, super_admin FROM user where id = ? OR steam_id = ?";
-    }
+    let sql: string =
+      "SELECT id, name, steam_id, small_image, medium_image, large_image, admin, super_admin, username, api_key, challonge_api_key FROM user where id = ? OR steam_id = ?";
 
     let user: any = await db.query(sql, [userOrSteamID, userOrSteamID]);
     if (user[0] != null) {
       user = JSON.parse(JSON.stringify(user[0]));
-      if (user.api_key != null) {
-        user.api_key = user?.id + ":" + Utils.decrypt(user.api_key);
+      const isSelf: boolean = req.user != null && req.user.id == user.id;
+      // Secrets are only ever shown to their owner; the password hash is never selected.
+      if (isSelf && user.api_key != null) {
+        user.api_key = user.id + ":" + Utils.decrypt(user.api_key);
+      } else {
+        delete user.api_key;
       }
-      if (user.challonge_api_key != null) {
+      if (isSelf && user.challonge_api_key != null) {
         user.challonge_api_key = Utils.decrypt(user.challonge_api_key);
+      } else {
+        delete user.challonge_api_key;
+      }
+      if (!isSelf && !(req.user && Utils.superAdminCheck(req.user))) {
+        delete user.username;
       }
       res.json({ user });
     } else {
       res.status(404).json({ message: "User does not exist in the system." });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -198,13 +195,15 @@ router.get("/:user_id", async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/", Utils.ensureAuthenticated, audited("user.create", { target: (req, body) => ({ type: "user", id: body?.id ?? null }) }), async (req, res, next) => {
   try {
     if (req.user && Utils.adminCheck(req.user)) {
       let steamId: string = req.body[0].steam_id;
       let steamName: string = req.body[0].name;
-      let isAdmin: number = req.body[0].admin;
-      let isSuperAdmin: number = req.body[0].super_admin;
+      // Only super admins may create privileged accounts.
+      let isSuperAdminCaller: boolean = Utils.superAdminCheck(req.user);
+      let isAdmin: number = isSuperAdminCaller ? req.body[0].admin : 0;
+      let isSuperAdmin: number = isSuperAdminCaller ? req.body[0].super_admin : 0;
       let smallImage: string = req.body[0].small_image;
       let mediumImage: string = req.body[0].medium_image;
       let largeImage: string = req.body[0].large_image;
@@ -241,8 +240,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       res.status(403).json({ message: "You are not authorized to do this." });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -280,20 +278,37 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("user.update", { target: (req) => ({ type: "user", id: Number(firstBody(req).id) || null }), detail: (req) => { const b = firstBody(req); return [b.admin != null ? `admin=${b.admin}` : "", b.super_admin != null ? `super_admin=${b.super_admin}` : "", b.password ? "password changed" : "", b.new_api ? "new API key" : "", b.challonge_api_key != null ? "Challonge key" : "", b.name != null ? "name" : ""].filter(Boolean).join(", ") || null; } }), async (req, res, next) => {
   try {
-    let userToBeUpdated: RowDataPacket[] = await db.query(
-      "SELECT id, name, admin, super_admin, username, password FROM user WHERE id = ? OR steam_id = ?",
-      [req.body[0].id, req.body[0].steam_id]
-    );
+    // Resolve exactly one target user; every later check and the update use this row.
+    let userToBeUpdated: RowDataPacket[] =
+      req.body[0]?.id != null
+        ? await db.query(
+            "SELECT id, steam_id, name, admin, super_admin, username, password, steam_verified FROM user WHERE id = ?",
+            [req.body[0].id]
+          )
+        : await db.query(
+            "SELECT id, steam_id, name, admin, super_admin, username, password, steam_verified FROM user WHERE steam_id = ?",
+            [req.body[0]?.steam_id]
+          );
+    if (!userToBeUpdated.length) {
+      res.status(404).json({ message: "User does not exist in the system." });
+      return;
+    }
+    const target = userToBeUpdated[0];
+    const caller = req.user!;
+    const isSelf: boolean = caller.id == target.id;
+    const callerIsSuperAdmin: boolean = Utils.superAdminCheck(caller);
+    const callerIsAdmin: boolean = Utils.adminCheck(caller);
+
     let isAdmin: number =
-      req.body[0].admin == null ? userToBeUpdated[0].admin : req.body[0].admin;
+      req.body[0].admin == null ? target.admin : req.body[0].admin;
     let isSuperAdmin: number =
       req.body[0].super_admin == null
-        ? userToBeUpdated[0].super_admin
+        ? target.super_admin
         : req.body[0].super_admin;
     let displayName: string =
-      req.body[0].name === null ? userToBeUpdated[0].name : req.body[0].name;
+      req.body[0].name == null ? target.name : req.body[0].name;
     let smallImage: string = req.body[0].small_image;
     let mediumImage: string = req.body[0].medium_image;
     let largeImage: string = req.body[0].large_image;
@@ -308,68 +323,82 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       req.body[0].challonge_api_key == null
         ? null
         : Utils.encrypt(req.body[0].challonge_api_key);
-    let password: string = req.body[0].password;
+    let password: string | undefined = req.body[0].password;
     let oldPassword: string = req.body[0].old_password;
     if (apiKey != null) apiKey = Utils.encrypt(apiKey);
-    let steamId: string = req.body[0].steam_id;
-    let userId: number = userToBeUpdated[0].id;
     let updateUser: UserObject;
-    // Let admins force update passwords in the event of issues.
-    if (req.user && Utils.adminCheck(req.user)) {
+    if (callerIsSuperAdmin) {
+      // A super admin locked out by mistake gets the role back from super_admins.steam_ids at the next Steam login.
+      const rolesChanged: boolean = req.body[0].admin != null || req.body[0].super_admin != null;
+      // A local account's Steam ID isn't proven: it must not get admin rights (see steam_verified).
+      if (rolesChanged && (Number(isAdmin) > 0 || Number(isSuperAdmin) > 0) && !Number(target.steam_verified)) {
+        res.status(412).json({ message: "Only accounts that signed in with Steam can be admins." });
+        return;
+      }
+      // Super admins manage roles and can force-set passwords, e.g. for locked out users.
       updateUser = {
         admin: isAdmin,
         super_admin: isSuperAdmin,
+        // Set here, so a Steam login no longer resets them from the config lists.
+        roles_from_config: rolesChanged ? 0 : undefined,
         name: displayName,
         small_image: smallImage,
         medium_image: mediumImage,
         large_image: largeImage,
         api_key: apiKey,
         password: password ? hashSync(password, 10) : null,
-        challonge_api_key: challongeApiKey
+        challonge_api_key: isSelf ? challongeApiKey : null
       };
-    } else if (req.user && req.user.steam_id == steamId || req.user!.id == userId) {
-      if (req.body[0].force_reset) {
-        await db.query("UPDATE user SET password = NULL WHERE steam_id = ?", [req.user?.steam_id]);
-      } else if (password && userToBeUpdated[0].password) {
-        const isOldPassMatching = await compare(oldPassword, userToBeUpdated[0].password);
+    } else if (isSelf) {
+      // Changing an existing password always needs the old one (the old panel's force_reset
+      // flag used to skip this check). Only super admins can force-set a password.
+      if (password && target.password) {
+        const isOldPassMatching = await compare(String(oldPassword), target.password);
         if (!isOldPassMatching) {
           res.status(403).json({ message: "Old password does not match." });
           return;
         }
       }
       updateUser = {
+        // Admins may still edit their own display name and images.
+        name: callerIsAdmin ? displayName : undefined,
+        small_image: callerIsAdmin ? smallImage : undefined,
+        medium_image: callerIsAdmin ? mediumImage : undefined,
+        large_image: callerIsAdmin ? largeImage : undefined,
         api_key: apiKey,
-        password: userToBeUpdated[0].username == null
-          ? null
-          : hashSync(password, 10),
+        password: target.username != null && password ? hashSync(password, 10) : null,
         challonge_api_key: challongeApiKey
+      };
+    } else if (callerIsAdmin && !target.admin && !target.super_admin) {
+      // Admins can tidy up regular users' profiles, nothing more.
+      updateUser = {
+        name: displayName,
+        small_image: smallImage,
+        medium_image: mediumImage,
+        large_image: largeImage
       };
     } else {
       res.status(403).json({ message: "You are not authorized to do this." });
       return;
     }
     updateUser = await db.buildUpdateStatement(updateUser);
-    if (!Object.keys(updateUser)) {
+    if (Object.keys(updateUser).length === 0) {
       res.status(412).json({ message: "No update data has been provided." });
       return;
     }
-    let sql: string = "UPDATE user SET ? WHERE steam_id = ?";
-    await db.query(sql, [updateUser, steamId]);
+    let sql: string = "UPDATE user SET ? WHERE id = ?";
+    await db.query(sql, [updateUser, target.id]);
     // If we're updating ourselves we need to update their session. Force a reload of session.
-    if (req.user && req.user.steam_id == req.body[0].steam_id) {
-      // Check if the user being updated has admin access to begin with.
-      if (Utils.adminCheck(req.user)) {
-        req.user.super_admin = isSuperAdmin;
-        req.user.admin = isAdmin;
-        req.login(req.user, (err) => {
-          if (err) return next(new Error("Error updating user profile"));
-        });
-      }
+    if (isSelf && callerIsSuperAdmin) {
+      caller.super_admin = isSuperAdmin;
+      caller.admin = isAdmin;
+      req.login(caller, (err) => {
+        if (err) return next(new Error("Error updating user profile"));
+      });
     }
     res.status(200).json({ message: "User successfully updated!" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -410,8 +439,7 @@ router.get("/:user_id/steam", async (req, res, next) => {
       url: "https://steamcommunity.com/profiles/" + allUsers[0].steam_id,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -462,8 +490,7 @@ router.get("/:user_id/recent", async (req, res, next) => {
     const matches: RowDataPacket[] = await db.query(sql, [userOrSteamID, userOrSteamID]);
     res.json({ matches });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 

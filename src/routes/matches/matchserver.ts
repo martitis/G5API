@@ -1,9 +1,9 @@
 /**
  * @swagger
  * resourcePath: /matches
- * description: Express API router for matche server calls in get5.
+ * description: Express API router for a match's game server (MatchZy commands over RCON).
  */
-import { Router } from "express";
+import { NextFunction, Request, Response, Router } from "express";
 
 const router = Router();
 
@@ -11,7 +11,20 @@ import {db} from "../../services/db.js";
 
 import Utils from "../../utility/utils.js";
 
-import GameServer from "../../utility/serverrcon.js";
+import GameServer, { BackupEntry, parseStatusPlayers, RconArgumentError, restoreFailed } from "../../utility/serverrcon.js";
+import { callbackCvars } from "../../services/matchconfig.js";
+import config from "config";
+import { audited, firstBody } from "../../utility/audit.js";
+import { onMatchChanged } from "../../services/tournaments.js";
+import { controlCommand } from "../../utility/matchcontrol.js";
+
+/** After a successful forfeit, cancel or restart, the match's tournament bracket is updated. */
+const refreshTournamentAfter = (req: Request, res: Response, next: NextFunction) => {
+  res.on("finish", () => {
+    if (res.statusCode < 400) void onMatchChanged(req.params.match_id);
+  });
+  next();
+};
 
 
 import { existsSync, readdir } from "fs";
@@ -19,12 +32,15 @@ import { AccessMessage } from "../../types/mapstats/AccessMessage.js";
 import { RowDataPacket } from "mysql2";
 import { MapStats } from "../../types/mapstats/MapStats.js";
 import { MatchData } from "../../types/matches/MatchData.js";
+import GlobalEmitter from "../../utility/emitter.js";
 
+import logger from "../../utility/logger.js";
+import { checkMatch, dismissServerState, getServerState } from "../../services/heartbeat.js";
 /**
  * @swagger
  *
  *  /matches/:match_id/forfeit/:winner_id:
- *   get:
+ *   post:
  *     description: Forfeits a current match with a given team ID as the winner, if the match is running.
  *     parameters:
  *       - in: path
@@ -57,12 +73,14 @@ import { MatchData } from "../../types/matches/MatchData.js";
  *       412:
  *         $ref: '#/components/responses/MatchInvalidData'
  */
-router.get(
+router.post(
   "/:match_id/forfeit/:winner_id",
   Utils.ensureAuthenticated,
+  audited("match.forfeit", { detail: (req) => `winner team ${req.params.winner_id}` }),
+  refreshTournamentAfter,
   async (req, res, next) => {
     try {
-      let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
         req.params.match_id,
         req.user!,
         false
@@ -75,7 +93,7 @@ router.get(
           .status(412)
           .json({ message: "Winner number invalid. Please provide 1 or 2." });
       } else {
-        let currentMatchInfo: string =
+        const currentMatchInfo: string =
           "SELECT server_id, team1_id, team2_id, is_pug FROM `match` WHERE id = ?";
         const matchRow: RowDataPacket[] = await db.query(
           currentMatchInfo,
@@ -105,6 +123,7 @@ router.get(
           start_time: new Date().toISOString().slice(0, 19).replace("T", " "),
           end_time: new Date().toISOString().slice(0, 19).replace("T", " "),
           winner: teamIdWinner,
+          forfeit: 1,
         };
         if (!mapStat.length) {
           mapStatSql = "INSERT map_stats SET ?";
@@ -134,21 +153,24 @@ router.get(
               !mapStat.length ? mapStatId.insertId : mapStat[0].id,
               matchRow[0].team1_id,
               matchRow[0].team2_id,
-              teamIdWinner == 1 ? matchRow[0].team1_id : matchRow[0].team2_id
+              teamIdWinner
             );
         }
-        let serverUpdate: GameServer = await getGameServer(req.params.match_id);
-        if (!serverUpdate.endGet5Match()) {
-          console.log(
-            "Error attempting to stop match on game server side. Will continue."
-          );
+        if (matchRow[0].server_id != null) {
+          let serverUpdate: GameServer = await getGameServer(req.params.match_id);
+          // Ends the series on the server with the forfeit winner announced.
+          if (!(await serverUpdate.endGet5Match(req.params.winner_id == "1" ? "team1" : "team2"))) {
+            logger.warn(
+              "Error attempting to stop match on game server side. Will continue."
+            );
+          }
         }
         res.json({ message: "Match has been forfeitted successfully." });
         return;
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -157,7 +179,7 @@ router.get(
  * @swagger
  *
  *  /matches/:match_id/cancel:
- *   get:
+ *   post:
  *     description: Cancels the given match, provided it isn't finished and the user has the ability to do so. The user must either own the match or be an admin.
  *     produces:
  *       - application/json
@@ -183,9 +205,11 @@ router.get(
  *       403:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.get(
+router.post(
   "/:match_id/cancel/",
   Utils.ensureAuthenticated,
+  audited("match.cancel"),
+  refreshTournamentAfter,
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -258,8 +282,8 @@ router.get(
         // Let the server cancel the match first, or attempt to?
         if (matchRow[0].server_id != null) {
           let serverUpdate: GameServer = await getGameServer(req.params.match_id);
-          if (!serverUpdate.endGet5Match()) {
-            console.log(
+          if (!(await serverUpdate.endGet5Match())) {
+            logger.warn(
               "Error attempting to stop match on game server side. Will continue."
             );
           }
@@ -268,8 +292,8 @@ router.get(
         return;
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -278,7 +302,7 @@ router.get(
  * @swagger
  *
  *  /matches/:match_id/restart:
- *   get:
+ *   post:
  *     description: Restarts the given match, provided it isn't finished and the user has the ability to do so. The user must either own the match or be an admin.
  *     produces:
  *       - application/json
@@ -304,9 +328,11 @@ router.get(
  *       403:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.get(
+router.post(
   "/:match_id/restart/",
   Utils.ensureAuthenticated,
+  audited("match.restart"),
+  refreshTournamentAfter,
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -324,62 +350,47 @@ router.get(
           currentMatchInfo,
           [req.params.match_id]
         );
-        let mapStatSql: string =
-          "SELECT id FROM map_stats WHERE match_id=?";
-        const mapStat: RowDataPacket[] = await db.query(mapStatSql, [
-          req.params.match_id,
-        ]);
-        let playerStatSql: string =
-          "SELECT id FROM player_stats WHERE match_id=?";
-        const playerStats: RowDataPacket[] = await db.query(playerStatSql, [
-          req.params.match_id,
-        ]);
-        let vetoSql: string =
-          "SELECT id FROM veto WHERE match_id=?";
-        const vetoData: RowDataPacket[] = await db.query(vetoSql, [
-          req.params.match_id,
-        ]);
-        let matchUpdateStmt: MatchData = {
+        if (matchRow[0].server_id == null) {
+          res.status(412).json({ message: "Match has no server to restart on." });
+          return;
+        }
+        let matchUpdateStmt: { [key: string]: any } = {
           start_time: new Date().toISOString().slice(0, 19).replace("T", " "),
           cancelled: 0,
-          end_time: null
+          end_time: null,
+          winner: null,
+          team1_score: 0,
+          team2_score: 0,
+          team1_series_score: 0,
+          team2_series_score: 0
         };
-        if (mapStat.length) {
-          mapStatSql = "DELETE FROM map_stats WHERE match_id = ?";
-          await db.query(mapStatSql, [req.params.match_id]);
-        }
-        if (playerStats.length) {
-          playerStatSql = "DELETE FROM player_stats WHERE match_id = ?";
-          await db.query(playerStatSql, [req.params.match_id]);
-        }
-        if (vetoData.length) {
-          vetoSql = "DELETE FROM veto WHERE match_id = ?";
-          await db.query(vetoSql, [req.params.match_id]);
-        }
-        // Let the server cancel the match first, or attempt to?
-        if (matchRow[0].server_id != null) {
-          let serverUpdate: GameServer = await getGameServer(req.params.match_id);
-          if (!await serverUpdate.endGet5Match()) {
-            console.log(
-              "Error attempting to stop match on game server side. Will continue."
-            );
-          }
-          await serverUpdate.prepareGet5Match(
-            Utils.apiUrl("/matches/" + req.params.match_id + "/config"),
-            matchRow[0].api_key
+        let serverUpdate: GameServer = await getGameServer(req.params.match_id);
+        if (!(await serverUpdate.endGet5Match())) {
+          logger.warn(
+            "Error attempting to stop match on game server side. Will continue."
           );
-          let matchSql: string = "UPDATE `match` SET ? WHERE id=?";
-          await db.query(matchSql, [
-            matchUpdateStmt,
-            req.params.match_id,
-          ]);
+        }
+        // Start from a clean slate: every map, stat, kill, bomb, pause and veto of the previous attempt.
+        await Utils.deleteMatchProgress(req.params.match_id);
+        await db.query("UPDATE `match` SET ? WHERE id=?", [matchUpdateStmt, req.params.match_id]);
+        await db.query("UPDATE game_server SET in_use = 1 WHERE id = ?", [matchRow[0].server_id]);
+        GlobalEmitter.emit("matchUpdate");
+        const loaded: boolean = await serverUpdate.prepareGet5Match(
+          Utils.apiUrl("/matches/" + req.params.match_id + "/config"),
+          matchRow[0].api_key
+        );
+        if (!loaded && process.env.NODE_ENV !== "test") {
+          res.status(500).json({
+            message: "Match data was reset, but MatchZy did not load the match. Check the game server's MatchZy log."
+          });
+          return;
         }
         res.json({ message: "Match has been restarted successfully." });
         return;
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -428,6 +439,7 @@ router.get(
 router.put(
   "/:match_id/rcon/",
   Utils.ensureAuthenticated,
+  audited("match.rcon", { detail: (req) => String(firstBody(req).rcon_command ?? "") }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -472,7 +484,7 @@ router.put(
           });
           return;
         } catch (err) {
-          console.error(
+          logger.error(
             "Error attempting to send RCON Command. Please check server log."
           );
           res.status(500).json({
@@ -483,8 +495,8 @@ router.put(
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -493,7 +505,7 @@ router.put(
  * @swagger
  *
  *  /matches/:match_id/pause:
- *   get:
+ *   post:
  *     description: Sends the sm_pause command to a given match.
  *     produces:
  *       - application/json
@@ -519,9 +531,10 @@ router.put(
  *       403:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.get(
+router.post(
   "/:match_id/pause/",
   Utils.ensureAuthenticated,
+  audited("match.pause"),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -545,8 +558,8 @@ router.get(
         return;
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -555,7 +568,7 @@ router.get(
  * @swagger
  *
  *  /matches/:match_id/unpause:
- *   get:
+ *   post:
  *     description: Sends the sm_unpause command to a given match.
  *     produces:
  *       - application/json
@@ -581,9 +594,10 @@ router.get(
  *       403:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.get(
+router.post(
   "/:match_id/unpause/",
   Utils.ensureAuthenticated,
+  audited("match.unpause"),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -607,8 +621,8 @@ router.get(
         return;
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -664,6 +678,7 @@ router.get(
 router.put(
   "/:match_id/adduser/",
   Utils.ensureAuthenticated,
+  audited("match.add_player", { detail: (req) => `${firstBody(req).steam_id ?? ""} -> ${firstBody(req).team_id ?? ""}` }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -696,16 +711,20 @@ router.put(
             response: rconResponse,
           });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -787,16 +806,20 @@ router.put(
             response: rconResponse,
           });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -845,6 +868,7 @@ router.put(
 router.put(
   "/:match_id/addspec/",
   Utils.ensureAuthenticated,
+  audited("match.add_spectator", { detail: (req) => String(firstBody(req).steam_id ?? "") }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -865,16 +889,20 @@ router.put(
             response: rconResponse,
           });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -923,6 +951,7 @@ router.put(
 router.put(
   "/:match_id/removeuser/",
   Utils.ensureAuthenticated,
+  audited("match.remove_player", { detail: (req) => String(firstBody(req).steam_id ?? "") }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -943,16 +972,20 @@ router.put(
             response: rconResponse,
           });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -1003,19 +1036,23 @@ router.get(
       } else {
         let serverUpdate: GameServer = await getGameServer(req.params.match_id);
         try {
-          let rconResponse: string = await serverUpdate.getBackups();
-          res.json({ message: "Backups retrieved.", response: rconResponse });
+          let backups: BackupEntry[] = await serverUpdate.getBackups(req.params.match_id);
+          res.json({ message: "Backups retrieved.", response: backups });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -1066,6 +1103,7 @@ router.get(
 router.post(
   "/:match_id/backup/",
   Utils.ensureAuthenticated,
+  audited("match.restore_backup", { detail: (req) => String(firstBody(req).backup_name ?? "") }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -1078,28 +1116,45 @@ router.post(
         return;
       } else {
         let serverUpdate: GameServer = await getGameServer(req.params.match_id);
-        if (req.body[0].backup_name == null) {
+        const backupName: unknown = req.body[0]?.backup_name;
+        if (typeof backupName !== "string" || backupName === "") {
           res
             .status(412)
             .json({ message: "Please provide the backup name." });
           return;
         }
         try {
-          let rconResponse: string = await serverUpdate.restoreBackup(
-            req.body[0].backup_name
-          );
+          // Only restore a file the server actually lists for this match.
+          const backups: BackupEntry[] = await serverUpdate.getBackups(req.params.match_id);
+          if (process.env.NODE_ENV !== "test" && !backups.some((b) => b.file === backupName)) {
+            res.status(412).json({ message: "Backup not found on the game server." });
+            return;
+          }
+          let rconResponse: string = await serverUpdate.restoreBackup(backupName);
+          // MatchZy answers even when it restored nothing (e.g. "has no complete round data").
+          if (restoreFailed(rconResponse)) {
+            res.status(409).json({
+              message: "MatchZy did not restore this backup. Try another round.",
+              response: rconResponse
+            });
+            return;
+          }
           res.json({ message: "Restored backup.", response: rconResponse });
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -1153,6 +1208,7 @@ router.post(
 router.post(
   "/:match_id/backup/remote",
   Utils.ensureAuthenticated,
+  audited("match.restore_remote_backup", { detail: (req) => `server ${firstBody(req).server_id ?? ""}: ${firstBody(req).backup_file ?? ""}` }),
   async (req, res, next) => {
     try {
       let errMessage: AccessMessage | null = await Utils.getUserMatchAccess(
@@ -1165,7 +1221,7 @@ router.post(
         return;
       } else {
         let newServerId: number = parseInt(req.body[0].server_id);
-        let currentMatchInfo: string = "SELECT server_id FROM `match` WHERE id = ?";
+        let currentMatchInfo: string = "SELECT server_id, api_key FROM `match` WHERE id = ?";
         let newServerInfo: string =
           "SELECT id, user_id, ip_string, port, rcon_password, public_server FROM game_server WHERE id = ?";
         let configString: string = req.body[0].backup_file;
@@ -1176,16 +1232,24 @@ router.post(
         const newServerRow: RowDataPacket[] = await db.query(newServerInfo, [
           newServerId
         ]);
+        if (!newServerRow.length) {
+          res.status(404).json({ message: "Server not found." });
+          return;
+        }
         // Check to see if new server row matches for access purposes.
-        if (req.user && !Utils.adminCheck(req.user)) {
-          if (newServerRow[0].user_id != req.user.id && !newServerRow[0].public_server) {
+        if (!Utils.adminCheck(req.user!)) {
+          if (newServerRow[0].user_id != req.user!.id && !newServerRow[0].public_server) {
             res.status(403).json({ message: "User is not authorized to perform action." });
             return;
           }
         }
 
-        // Check to see if file exists in our public directory.
-        if (!existsSync(`public/backups/${req.params.match_id}/${configString}`)) {
+        // Only plain file names from our own backup folder (no paths).
+        if (
+          typeof configString !== "string" ||
+          !/^[\w-]+(\.[\w-]+)*\.(json|cfg)$/.test(configString) ||
+          !existsSync(`public/backups/${parseInt(req.params.match_id)}/${configString}`)
+        ) {
           res
             .status(412)
             .json({ message: "Backup name invalid." });
@@ -1199,10 +1263,13 @@ router.post(
         try {
           if (await serverUpdate.isGet5Available()) {
             let rconResponse: string = await serverUpdate.restoreBackupFromURL(
-              Utils.apiUrl(`/backups/${req.params.match_id}/${configString}`)
+              Utils.apiUrl(`/backups/${parseInt(req.params.match_id)}/${configString}`),
+              matchServerId[0].api_key
             );
             currentMatchInfo = "UPDATE `match` SET server_id = ? WHERE id = ?";
-            await db.query(currentMatchInfo, [req.params.match_id, newServerId]);
+            await db.query(currentMatchInfo, [newServerId, req.params.match_id]);
+            currentMatchInfo = "UPDATE game_server SET in_use = 1 WHERE id = ?";
+            await db.query(currentMatchInfo, [newServerId]);
             currentMatchInfo = "UPDATE game_server SET in_use = 0 WHERE id = ?";
             await db.query(currentMatchInfo, [matchServerId[0].server_id]);
             res.json({ message: "Restored backup.", response: rconResponse });
@@ -1213,16 +1280,20 @@ router.post(
             return;
           }
         } catch (err) {
-          res
-            .status(500)
-            .json({ message: "Error on game server.", response: err });
+          if (err instanceof RconArgumentError) {
+            res.status(412).json({ message: err.message });
+          } else {
+            res
+              .status(500)
+              .json({ message: "Error on game server.", response: err });
+          }
         } finally {
           return;
         }
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error on game server.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "Error on game server." });
     }
   }
 );
@@ -1275,13 +1346,11 @@ router.get(
         readdir(`public/backups/${req.params.match_id}`, function (err, files) {
           //handling error
           if (err) {
-            console.error(err);
+            logger.error(err);
             return res.status(404).json({ message: "No backups found.", response: [] });;
           }
           //listing all files using forEach
           files.forEach(function (file) {
-            console.log(file);
-            // Do whatever you want to do with the file
             fileArray.push(file)
           });
           res.json({ message: "Backups retrieved.", response: fileArray });
@@ -1289,8 +1358,8 @@ router.get(
         return;
       }
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "API Error.", response: err });
+      logger.error(err);
+      res.status(500).json({ message: "API Error." });
     }
   }
 );
@@ -1312,5 +1381,449 @@ async function getGameServer(match_id: string): Promise<GameServer> {
     serverRow[0].rcon_password
   );
 }
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/callbacks:
+ *   post:
+ *     description: >
+ *       Sends the API's current event, backup and demo upload URLs to the game server of a running match.
+ *       Needed when the API's address (server.apiURL) changed after the match was loaded, because MatchZy keeps
+ *       the URLs it got with the match config.
+ *     produces:
+ *       - application/json
+ *     parameters:
+ *       - name: match_id
+ *         required: true
+ *         schema:
+ *          type: integer
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: The URLs were sent.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.post("/:match_id/callbacks", Utils.ensureAuthenticated, audited("match.update_callbacks"), async (req, res, next) => {
+  try {
+    const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+    if (errMessage != null) {
+      res.status(errMessage.status).json({ message: errMessage.message });
+      return;
+    }
+    const matchRow: RowDataPacket[] = await db.query("SELECT api_key FROM `match` WHERE id = ?", [
+      req.params.match_id
+    ]);
+    const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+    const response: string = await serverUpdate.setCvars(
+      callbackCvars(matchRow[0].api_key, Boolean(config.get("server.uploadDemos")))
+    );
+    res.json({ message: "Panel address sent to the game server.", response });
+  } catch (err) {
+    if (err instanceof RconArgumentError) {
+      res.status(412).json({ message: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/control:
+ *   post:
+ *     description: >
+ *       Admin match control over RCON. Body - action (start, skip_veto, toggle_knife, toggle_playout,
+ *       toggle_whitelist, ready_required + count, add_ready_time + seconds, change_map + map, team_name + team (1|2)
+ *       + name, say + message, cvar + cvar + value from the curated list). Owner or admin; every call is audited.
+ *     produces:
+ *       - application/json
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ message, response } - response is the game server's reply"
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       412:
+ *         description: Unknown action or invalid argument.
+ */
+router.post(
+  "/:match_id/control",
+  Utils.ensureAuthenticated,
+  audited("match.control", {
+    detail: (req) => {
+      const body = firstBody(req);
+      const args = Object.entries(body)
+        .filter(([key]) => key !== "action")
+        .map(([key, value]) => `${key}=${String(value)}`);
+      return [String(body.action ?? ""), ...args].join(" ");
+    }
+  }),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      const body = firstBody(req);
+      let command: string;
+      try {
+        command = controlCommand(body.action, body);
+      } catch (err) {
+        if (err instanceof RconArgumentError) {
+          res.status(412).json({ message: err.message });
+          return;
+        }
+        throw err;
+      }
+      if (process.env.NODE_ENV === "test") {
+        res.json({ message: "Command checked (not sent in tests).", response: command });
+        return;
+      }
+      const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+      const response: string = await serverUpdate.execute(command);
+      res.json({ message: "Command sent.", response });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/status:
+ *   get:
+ *     description: >
+ *       Health of the match's game server - whether RCON answers and MatchZy's get5_status (gamestate, matchid,
+ *       map, plugin version, ...). Owner or admin.
+ *     produces:
+ *       - application/json
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ reachable, status }"
+ */
+router.get("/:match_id/server/status", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+    if (errMessage != null) {
+      res.status(errMessage.status).json({ message: errMessage.message });
+      return;
+    }
+    if (process.env.NODE_ENV === "test") {
+      res.json({ reachable: false, status: null });
+      return;
+    }
+    const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+    const reachable: boolean = await serverUpdate.isServerAlive();
+    const status: unknown = reachable ? await serverUpdate.getMatchStatus().catch(() => null) : null;
+    res.json({ reachable, status });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** The public part of a match's server state (no addresses). */
+const publicServerState = (row: RowDataPacket | null) =>
+  row
+    ? {
+        state: row.state,
+        reason: row.reason,
+        checked_at: row.checked_at,
+        last_seen: row.last_seen,
+        gamestate: row.gamestate,
+        server_matchid: row.server_matchid,
+        interrupted_at: row.interrupted_at,
+        dismissed: row.dismissed_at != null,
+        resynced_at: row.resynced_at
+      }
+    : null;
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/state:
+ *   get:
+ *     description: >
+ *       What the API's heartbeat (get5_status every 30 s) last saw for the match's game server. state is ok, offline
+ *       (no RCON answer twice in a row) or interrupted (no match or another match loaded, e.g. after a restart).
+ *       Public. null before the first check, or when the match is over.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ server_state: { state, reason, checked_at, last_seen, gamestate, interrupted_at, dismissed, resynced_at } | null }"
+ */
+router.get("/:match_id/server/state", async (req, res, next) => {
+  try {
+    res.json({ server_state: publicServerState(await getServerState(req.params.match_id)) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/check:
+ *   post:
+ *     description: >
+ *       Checks the game server now and resyncs scores that differ (the "Resync from server" button). Owner or admin.
+ *       A problem is only reported after two checks in a row, so one call can still answer ok.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ message, server_state }"
+ */
+router.post(
+  "/:match_id/server/check",
+  Utils.ensureAuthenticated,
+  audited("match.server_check"),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      const row = await checkMatch(Number(req.params.match_id));
+      res.json({ message: "Server checked.", server_state: publicServerState(row) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/reload:
+ *   post:
+ *     description: >
+ *       Loads the match onto its server again (matchzy_loadmatch_url) without touching the panel's stats, e.g. after
+ *       the server restarted. MatchZy starts the series over; to continue from a round, restore a backup instead
+ *       (a backup carries the whole match, so it works on a server with no match loaded). Owner or admin.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: Loaded.
+ *       502:
+ *         description: MatchZy did not load the match.
+ */
+router.post(
+  "/:match_id/server/reload",
+  Utils.ensureAuthenticated,
+  audited("match.server_reload"),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      const rows: RowDataPacket[] = await db.query("SELECT api_key FROM `match` WHERE id = ?", [req.params.match_id]);
+      const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+      const loaded: boolean = await serverUpdate.prepareGet5Match(
+        Utils.apiUrl("/matches/" + req.params.match_id + "/config"),
+        rows[0].api_key
+      );
+      if (!loaded && process.env.NODE_ENV !== "test") {
+        res.status(502).json({ message: "MatchZy did not load the match. Check the game server's MatchZy log." });
+        return;
+      }
+      await checkMatch(Number(req.params.match_id)).catch(() => null);
+      res.json({ message: "Match loaded on the server again." });
+    } catch (err) {
+      if (err instanceof RconArgumentError) {
+        res.status(412).json({ message: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+);
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/dismiss:
+ *   post:
+ *     description: Hides the offline/interrupted warning until the server is fine and then fails again. Owner or admin.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: Dismissed.
+ */
+router.post(
+  "/:match_id/server/dismiss",
+  Utils.ensureAuthenticated,
+  audited("match.server_dismiss"),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      await dismissServerState(req.params.match_id);
+      res.json({ message: "Warning dismissed." });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+const READY_CACHE_MS = 5000;
+const readyCache = new Map<string, { at: number; body: unknown }>();
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/ready:
+ *   get:
+ *     description: >
+ *       Whether each team is ready and how many of its players are connected (MatchZy's get5_status, which has no
+ *       per-player ready state). Public; null while the match isn't running on a server. Cached for 5 seconds.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ ready: { gamestate, team1: { ready, connected_clients }, team2: {...} } | null }"
+ */
+router.get("/:match_id/ready", async (req, res, next) => {
+  try {
+    const rows: RowDataPacket[] = await db.query(
+      "SELECT id, server_id, end_time, cancelled FROM `match` WHERE id = ?",
+      [req.params.match_id]
+    );
+    if (!rows.length) {
+      res.status(404).json({ message: "Match not found." });
+      return;
+    }
+    const match = rows[0];
+    if (!match.server_id || match.end_time || match.cancelled || process.env.NODE_ENV === "test") {
+      res.json({ ready: null });
+      return;
+    }
+    const key = String(match.id);
+    const cached = readyCache.get(key);
+    if (cached && Date.now() - cached.at < READY_CACHE_MS) {
+      res.json(cached.body);
+      return;
+    }
+    let ready: unknown = null;
+    try {
+      const status = await (await getGameServer(key)).getMatchStatus();
+      if (status && String(status.matchid) === key) {
+        const team = (value: any) =>
+          value ? { ready: Boolean(value.ready), connected_clients: Number(value.connected_clients) || 0 } : null;
+        ready = { gamestate: String(status.gamestate ?? ""), team1: team(status.team1), team2: team(status.team2) };
+      }
+    } catch {
+      // Unreachable server: shown as unknown.
+    }
+    const body = { ready };
+    for (const [id, entry] of readyCache) if (Date.now() - entry.at > 60000) readyCache.delete(id);
+    readyCache.set(key, { at: Date.now(), body });
+    res.json(body);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/players:
+ *   get:
+ *     description: >
+ *       Players connected to the match's server, from CS2's `status` (userid, name, ping, state, bot; CS2 doesn't
+ *       print Steam IDs there). Owner or admin.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ reachable, players }"
+ */
+router.get("/:match_id/server/players", Utils.ensureAuthenticated, async (req, res, next) => {
+  try {
+    const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+    if (errMessage != null) {
+      res.status(errMessage.status).json({ message: errMessage.message });
+      return;
+    }
+    if (process.env.NODE_ENV === "test") {
+      res.json({ reachable: false, players: [] });
+      return;
+    }
+    const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+    try {
+      const output: string = await serverUpdate.sendRconCommand("status");
+      res.json({ reachable: true, players: parseStatusPlayers(output) });
+    } catch {
+      res.json({ reachable: false, players: [] });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/kick:
+ *   post:
+ *     description: Kicks a connected player by the userid from /server/players (`kickid`). Owner or admin.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ message, response }"
+ *       412:
+ *         description: Invalid userid.
+ */
+router.post(
+  "/:match_id/server/kick",
+  Utils.ensureAuthenticated,
+  audited("match.kick", {
+    target: (req) => ({ type: "match", id: Number(req.params.match_id) || null }),
+    detail: (req) => `${String(firstBody(req).userid ?? "")} ${String(firstBody(req).name ?? "")}`.trim()
+  }),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      const userid = Number(firstBody(req).userid);
+      if (!Number.isInteger(userid) || userid < 0 || userid >= 65535) {
+        res.status(412).json({ message: "Invalid player id." });
+        return;
+      }
+      const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+      const response: string = await serverUpdate.sendRconCommand(`kickid ${userid}`);
+      res.json({ message: "Player kicked.", response });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export default router;

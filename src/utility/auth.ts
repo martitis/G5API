@@ -10,10 +10,12 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { hashSync, compare } from "bcrypt";
 import MockStrategy from "./mockstrategy.js";
 import {db} from "../services/db.js";
+import { RowDataPacket } from "mysql2";
 import { generate } from "randomstring";
 import Utils from "./utils.js";
 import User from "steamapi/dist/src/structures/User.js";
 
+import logger from "./logger.js";
 passport.serializeUser((user, done) => {
   done(null, user);
 });
@@ -22,24 +24,23 @@ passport.deserializeUser((obj: User, done) => {
   done(null, obj as any);
 });
 
+/** The mock Steam login (any visitor becomes the test user) needs NODE_ENV=test and G5API_MOCK_AUTH=1 (set by the
+ * jest configs), so a server started with NODE_ENV=test by mistake still uses real Steam logins. */
+const mockAuth: boolean = process.env.NODE_ENV === "test" && process.env.G5API_MOCK_AUTH === "1";
+
 function strategyForEnvironment() {
-  let strategy: any;
-  switch (process.env.NODE_ENV) {
-    case "test":
-      //@ts-ignore
-      strategy = new MockStrategy({ name: "steam", passAuthentication: true }, returnStrategy);
-      break;
-    default:
-      strategy = new SteamStrategy(
-        {
-          returnURL: Utils.apiUrl("/auth/steam/return"),
-          realm: Utils.apiUrl("/"),
-          apiKey: config.get("server.steamAPIKey"),
-        },
-        returnStrategy
-      );
+  if (mockAuth) {
+    //@ts-ignore
+    return new MockStrategy({ name: "steam", passAuthentication: true }, returnStrategy);
   }
-  return strategy;
+  return new SteamStrategy(
+    {
+      returnURL: Utils.apiUrl("/auth/steam/return"),
+      realm: Utils.apiUrl("/"),
+      apiKey: config.get("server.steamAPIKey"),
+    },
+    returnStrategy
+  );
 }
 
 async function returnStrategy(identifier: any, profile: any, done: any) {
@@ -72,6 +73,7 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
           name: profile.displayName,
           admin: isAdmin,
           super_admin: isSuperAdmin,
+          roles_from_config: isAdmin || isSuperAdmin ? 1 : 0,
           created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
           small_image: profile.photos[0].value,
           medium_image: profile.photos[1].value,
@@ -91,13 +93,26 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
         sql = "INSERT INTO map_list (map_name, map_display_name, user_id) VALUES ?";
         await db.query(sql, [defaultMaps]);
       } else {
-        let updateUser = {
+        let updateUser: { [key: string]: any } = {
           small_image: profile.photos[0].value,
           medium_image: profile.photos[1].value,
           large_image: profile.photos[2].value,
-          super_admin: isSuperAdmin,
-          admin: isAdmin
+          steam_verified: 1
         };
+        // The config lists always grant their role. Leaving a list removes the role only when it came
+        // from the list; roles a super admin set in the panel (roles_from_config = 0) are kept.
+        if (isSuperAdmin || isAdmin) {
+          Object.assign(updateUser, { super_admin: isSuperAdmin, admin: isAdmin, roles_from_config: 1 });
+        } else if (curUser[0].roles_from_config) {
+          Object.assign(updateUser, { super_admin: 0, admin: 0, roles_from_config: 0 });
+        }
+        if (!curUser[0].steam_verified) {
+          // Someone registered locally with this Steam ID before its owner ever logged in.
+          // The real owner takes the account over; the local credentials are dropped.
+          logger.warn(`Steam login verified user ${curUser[0].id}; clearing unverified local credentials.`);
+          updateUser.username = null;
+          updateUser.password = null;
+        }
         sql = "UPDATE user SET ? WHERE steam_id=?";
         await db.query(sql, [updateUser, profile.id]);
         // Insert default maps.
@@ -116,11 +131,13 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
           await db.query(sql, [defaultMaps]);
         }
       }
+      // The roles as stored now (config list, or set in the panel).
+      const roles: RowDataPacket[] = await db.query("SELECT admin, super_admin FROM user WHERE id = ?", [curUser[0].id]);
       return done(null, {
         steam_id: profile.id,
         name: profile.displayName,
-        super_admin: isSuperAdmin,
-        admin: isAdmin,
+        super_admin: Number(roles[0]?.super_admin) || 0,
+        admin: Number(roles[0]?.admin) || 0,
         id: curUser[0].id,
         small_image: profile.photos[0].value,
         medium_image: profile.photos[1].value,
@@ -128,12 +145,7 @@ async function returnStrategy(identifier: any, profile: any, done: any) {
         api_key: curUser[0].id + ":" + Utils.decrypt(curUser[0].api_key),
       });
     } catch (err) {
-      console.log(profile.toString());
-      console.log(
-        "ERRORERRORERRORERRORERRORERRORERRORERROR " +
-        err +
-        "ERRORERRORERRORERRORERRORERRORERRORERROR"
-      );
+      logger.error({ err, steam_id: profile?.id }, "Steam login failed");
       return done(null, null);
     }
   });
@@ -170,7 +182,7 @@ passport.use('local-login', new LocalStrategy(async (username, password, done) =
       return done(null, false, {message: "Invalid username or password."});
     }
   } catch (e) {
-    console.error(e);
+    logger.error(e);
   }
   return done(null, undefined);
 }));
@@ -183,9 +195,6 @@ passport.use('local-register',
       }
       let sql = "SELECT * FROM user WHERE username = ? OR steam_id = ?";
       let defaultMaps = [];
-      let superAdminList = (config.get("super_admins.steam_ids") as String).split(",");
-      let adminList = (config.get("admins.steam_ids") as String).split(",");
-      let isAdmin, isSuperAdmin = 0;
       if (!req.body.steam_id) {
         return done(null, false, {message: "Steam ID was not provided"});
       }
@@ -197,11 +206,8 @@ passport.use('local-register',
         if(await Utils.convertToSteam64(req.body.steam_id) == "") {
           return done(null, false, {message: "Not a valid Steam64 ID."});
         }
-        if (superAdminList.indexOf(req.body.steam_id) >= 0) {
-          isSuperAdmin = 1;
-        } else if (adminList.indexOf(req.body.steam_id) >= 0) {
-          isAdmin = 1;
-        }
+        // A local registration doesn't prove ownership of the Steam ID, so it never gets
+        // admin rights from the config lists; those apply after a real Steam login.
         let apiKey = generate({
           length: 64,
           capitalization: "uppercase",
@@ -211,8 +217,9 @@ passport.use('local-register',
         let newUser: Object = {
           steam_id: req.body.steam_id,
           name: steamName,
-          admin: isAdmin,
-          super_admin: isSuperAdmin,
+          admin: 0,
+          super_admin: 0,
+          steam_verified: 0,
           created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
           api_key: Utils.encrypt(apiKey),
           username: username,
@@ -244,7 +251,7 @@ passport.use('local-register',
         });
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
     return done(null, undefined, 
       {message: "Unknown error. Please ensure the steam ID is not already in use."});

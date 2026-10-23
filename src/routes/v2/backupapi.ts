@@ -25,8 +25,9 @@ import { RowDataPacket } from "mysql2";
  * @const
  * Global Server Sent Emitter class for real time data.
  */
-import { existsSync, mkdirSync, writeFile } from "fs";
+import { mkdir, writeFile } from "fs/promises";
 
+import logger from "../../utility/logger.js";
 /** Express module
  * @const
  */
@@ -44,19 +45,19 @@ const router: Router = Router();
  *       - v2
  *     parameters:
  *      - in: header
- *        name: Get5-FileName
+ *        name: MatchZy-FileName
  *        description: Name of the backup file coming from the game server.
  *        schema:
  *          type: string
  *        required: true
  *      - in: header
- *        name: Get5-MapNumber
+ *        name: MatchZy-MapNumber
  *        description: Zero-indexed map number in the series.
  *        schema:
  *          type: string
  *        required: true
  *      - in: header
- *        name: Get5-RoundNumber
+ *        name: MatchZy-RoundNumber
  *        description: Zero-indexed map number in the series, if the match is not live it is -1.
  *        schema:
  *          type: string
@@ -68,7 +69,7 @@ const router: Router = Router();
  *          type: string
  *        required: true
  *      - in: header
- *        name: Get5-MatchId
+ *        name: MatchZy-MatchId
  *        description: The ID of the match.
  *        schema:
  *          type: string
@@ -91,14 +92,19 @@ const router: Router = Router();
 router.post("/", async (req: Request, res: Response) => {
   try {
     const apiKey: string | undefined = req.get("Authorization");
-    const matchId: string | undefined = req.get("Get5-MatchId");
-    const mapNumber: string | undefined = req.get("Get5-MapNumber");
-    const roundNumber: string | undefined = req.get("Get5-RoundNumber");
+    const matchId: string | undefined = req.get("MatchZy-MatchId") ?? req.get("Get5-MatchId");
+    const mapNumber: string | undefined = req.get("MatchZy-MapNumber") ?? req.get("Get5-MapNumber");
+    const roundNumber: string | undefined = req.get("MatchZy-RoundNumber") ?? req.get("Get5-RoundNumber");
     // Check that the values have made it across.
     if (!apiKey || !matchId || !mapNumber || !roundNumber) {
       res.status(401).send({
         message: "API key, Match ID, Map Number, or Round Number not provided."
       });
+      return;
+    }
+    // These end up in a file path, so they must be plain numbers.
+    if (![matchId, mapNumber, roundNumber].every((value) => /^\d+$/.test(value))) {
+      res.status(412).send({ message: "Match ID, map number and round number must be numbers." });
       return;
     }
     // Check if our API key is correct.
@@ -109,23 +115,19 @@ router.post("/", async (req: Request, res: Response) => {
       });
       return;
     }
-    if (!existsSync(`public/backups/${matchId}/`))
-      mkdirSync(`public/backups/${matchId}/`, { recursive: true });
-
-    writeFile(
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      res.status(412).send({ message: "Backup is empty or not sent as application/octet-stream." });
+      return;
+    }
+    await mkdir(`public/backups/${matchId}/`, { recursive: true });
+    await writeFile(
       `public/backups/${matchId}/get5_backup_match${matchId}_map${mapNumber}_round${roundNumber}.cfg`,
-      req.body,
-      function (err) {
-        if (err) {
-          console.error(err);
-          throw err;
-        }
-      }
+      req.body
     );
     res.status(200).send({ message: "Success" });
   } catch (error) {
-    console.error(error);
-    res.status(500).send({ message: error });
+    logger.error(error);
+    res.status(500).send({ message: "Failed to store backup." });
     return;
   }
 });

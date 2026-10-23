@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /vetoes
- * description: Express API router for vetoes in get5.
+ * description: Express API router for vetoes.
  */
 import { Router } from "express";
 
@@ -11,11 +11,12 @@ import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
 
-import GlobalEmitter from "../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { AccessMessage } from "../types/mapstats/AccessMessage.js";
 import { VetoObject } from "../types/vetoes/VetoObject.js";
 
+import logger from "../utility/logger.js";
 /**
  * @swagger
  *
@@ -83,8 +84,7 @@ router.get("/", async (req, res, next) => {
     }
     res.json({ vetoes });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -128,8 +128,7 @@ router.get("/:match_id", async (req, res, next) => {
     }
     res.json({ vetoes });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -187,20 +186,21 @@ router.get("/:match_id/stream", async (req, res, next) => {
       res.write(vetoEventString);
     };
 
-    GlobalEmitter.on("vetoUpdate", vetoStreamData);
+    const vetoStreamDataForMatch = forMatch(matchId, vetoStreamData);
+    GlobalEmitter.on("vetoUpdate", vetoStreamDataForMatch);
     res.write(vetoEventString);
 
     req.on("close", () => {
-      GlobalEmitter.removeListener("vetoUpdate", vetoStreamData);
+      GlobalEmitter.removeListener("vetoUpdate", vetoStreamDataForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("vetoUpdate", vetoStreamData);
+      GlobalEmitter.removeListener("vetoUpdate", vetoStreamDataForMatch);
       res.end();
     });
   } catch (err) {
-    console.log(err);
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    logger.error(err);
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -266,7 +266,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         pick_or_veto: req.body[0].pick_or_ban,
       };
       insertStmt = await db.buildUpdateStatement(insertStmt) as VetoObject;
-      if (!Object.keys(insertStmt)) {
+      if (Object.keys(insertStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No insert data has been provided." });
@@ -281,8 +281,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       });
       GlobalEmitter.emit("vetoUpdate");
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 });
@@ -343,7 +342,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
         pick_or_veto: req.body[0].pick_or_ban,
       };
       updateStmt = await db.buildUpdateStatement(updateStmt) as VetoObject;
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });
@@ -354,8 +353,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       GlobalEmitter.emit("vetoUpdate");
       res.json({ message: "Veto updated successfully!" });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 });
@@ -424,8 +422,7 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
           .json({ message: "Vetoes were not found, nothing to delete." });
       return;
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: err });
+      next(err);
     }
   }
 });

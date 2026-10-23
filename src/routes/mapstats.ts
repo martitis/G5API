@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /mapstats
- * description: Express API router for mapstats in get5.
+ * description: Express API router for map stats of MatchZy matches.
  */
 import { Router } from "express";
 import app from "../../app.js";
@@ -12,11 +12,12 @@ import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
 
-import GlobalEmitter from "../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { MapStats } from "../types/mapstats/MapStats.js";
 import { AccessMessage } from "../types/mapstats/AccessMessage.js";
 
+import logger from "../utility/logger.js";
 /**
  * @swagger
  *
@@ -109,8 +110,7 @@ router.get("/", async (req, res, next) => {
     }
     res.json({ mapstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -154,8 +154,7 @@ router.get("/:match_id", async (req, res, next) => {
     }
     res.json({ mapstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -212,21 +211,22 @@ router.get("/:match_id", async (req, res, next) => {
       res.write(mapStatString);
     };
 
-    GlobalEmitter.on("mapStatUpdate", mapStatStreamStats);
+    const mapStatStreamStatsForMatch = forMatch(matchID, mapStatStreamStats);
+    GlobalEmitter.on("mapStatUpdate", mapStatStreamStatsForMatch);
 
     res.write(mapStatString);
     req.on("close", () => {
-      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStats);
+      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStatsForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStats);
+      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStatsForMatch);
       res.end();
     });
 
   } catch (err) {
-    console.error((err as Error).toString());
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    logger.error(err);
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -278,29 +278,35 @@ router.get("/:match_id/:map_number/stream", async (req, res, next) => {
     res.flushHeaders();
     mapstats = mapstats.map(v => Object.assign({}, v));
     let mapStatString: string = `event: mapstats\ndata: ${JSON.stringify(mapstats[0])}\n\n`
-    
+
     // Need to name the function in order to remove it!
     const mapStatStreamStats: (() => Promise<void>) = async () => {
-      mapstats = await db.query(sql, [matchID]);
-      mapstats = mapstats.map(v => Object.assign({}, v));
-      mapStatString = `event: mapstats\ndata: ${JSON.stringify(mapstats)}\n\n`
-      res.write(mapStatString);
+      try {
+        // Same shape as the first message: the single map's stats.
+        mapstats = await db.query(sql, [matchID, mapID]);
+        mapstats = mapstats.map(v => Object.assign({}, v));
+        mapStatString = `event: mapstats\ndata: ${JSON.stringify(mapstats[0])}\n\n`
+        res.write(mapStatString);
+      } catch (err) {
+        logger.error(err);
+      }
     };
 
-    GlobalEmitter.on("mapStatUpdate", mapStatStreamStats);
+    const mapStatStreamStatsForMatch = forMatch(matchID, mapStatStreamStats);
+    GlobalEmitter.on("mapStatUpdate", mapStatStreamStatsForMatch);
 
     res.write(mapStatString);
     req.on("close", () => {
-      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStats);
+      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStatsForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStats);
+      GlobalEmitter.removeListener("mapStatUpdate", mapStatStreamStatsForMatch);
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    logger.error(err);
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -351,7 +357,7 @@ router.get("/:match_id/:map_number/stream", async (req, res, next) => {
     const mapstat = JSON.parse(JSON.stringify(mapstats[0]));
     res.json({ mapstat });
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -408,6 +414,14 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         map_name: req.body[0].map_name,
         start_time: req.body[0].start_time,
       };
+      const existing: RowDataPacket[] = await db.query(
+        "SELECT id FROM map_stats WHERE match_id = ? AND map_number = ?",
+        [mapStatSet.match_id, mapStatSet.map_number]
+      );
+      if (existing.length) {
+        res.status(409).json({ message: "This map already has stats.", id: existing[0].id });
+        return;
+      }
       let sql: string = "INSERT INTO map_stats SET ?";
       let insertedStats: RowDataPacket[] = await db.query(sql, [mapStatSet]);
       GlobalEmitter.emit("mapStatUpdate");
@@ -418,8 +432,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -488,7 +501,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
         map_name: req.body[0].map_name,
       };
       updatedValues = await db.buildUpdateStatement(updatedValues) as MapStats;
-      if (!Object.keys(updatedValues)) {
+      if (Object.keys(updatedValues).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });
@@ -507,8 +520,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
           .json({ message: "ERROR - Maps Stats not updated or found." });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -583,8 +595,7 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
           .json({ message: "ERR - Unauthorized to delete OR not found." });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err });
+    next(err);
   }
 });
 

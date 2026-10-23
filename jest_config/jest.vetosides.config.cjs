@@ -1,6 +1,8 @@
 // For a detailed explanation regarding each configuration property, visit:
 // https://jestjs.io/docs/en/configuration.html
 process.env.NODE_ENV = "test";
+// The mock Steam login (src/utility/auth.ts) also needs this flag.
+process.env.G5API_MOCK_AUTH = "1";
 module.exports = {
   preset: 'ts-jest/presets/js-with-ts-esm',
   // A path to a custom resolver

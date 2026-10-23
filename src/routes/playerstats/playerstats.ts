@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /playerstats
- * description: Express API for player stats in Get5 matches.
+ * description: Express API for player stats in MatchZy matches.
  */
 import { Router } from "express";
 
@@ -11,11 +11,12 @@ import {db} from "../../services/db.js";
 
 import Utils from "../../utility/utils.js";
 
-import GlobalEmitter from "../../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { Player } from "../../types/leaderboard/Player.js";
 import { PlayerDatabaseObject } from "../../types/playerstats/PlayerDatabaseObject.js";
 
+import logger from "../../utility/logger.js";
 /* Swagger shared definitions */
 /**
  * @swagger
@@ -186,8 +187,7 @@ router.get("/", async (req, res, next) => {
     }
     res.json({ playerStats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -224,8 +224,7 @@ router.get("/unique", async (req, res, next) => {
     }
     res.json({ count: playercount[0].cnt });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -269,8 +268,7 @@ router.get("/:steam_id", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -313,8 +311,7 @@ router.get("/:steam_id/pug", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -357,8 +354,7 @@ router.get("/:steam_id/official", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -406,8 +402,7 @@ router.get("/:steam_id/official", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -451,8 +446,7 @@ router.get("/match/:match_id", async (req, res, next) => {
     }
     res.json({ playerstats });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -509,20 +503,21 @@ router.get("/match/:match_id", async (req, res, next) => {
       res.write(playerString);
     };
 
-    GlobalEmitter.on("playerStatsUpdate", playerStreamStats);
+    const playerStreamStatsForMatch = forMatch(matchID, playerStreamStats);
+    GlobalEmitter.on("playerStatsUpdate", playerStreamStatsForMatch);
 
     res.write(playerString);
     req.on("close", () => {
-      GlobalEmitter.removeListener("playerStatsUpdate", playerStreamStats);
+      GlobalEmitter.removeListener("playerStatsUpdate", playerStreamStatsForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("playerStatsUpdate", playerStreamStats);
+      GlobalEmitter.removeListener("playerStatsUpdate", playerStreamStatsForMatch);
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    logger.error(err);
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -573,8 +568,7 @@ router.get("/match/:match_id", async (req, res, next) => {
     const matches: RowDataPacket[] = await db.query(sql, [steamId]);
     res.json({ matches });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -704,7 +698,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       });
     }
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -815,7 +809,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       };
       // Remove any values that may not be updated.
       updateStmt = await db.buildUpdateStatement(updateStmt) as PlayerDatabaseObject;
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });
@@ -847,8 +841,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       return;
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -889,22 +882,21 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", async (req, res, next) => {
+router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
-    if (req.body[0].match_id == null) {
+    if (req.body[0]?.match_id == null) {
       res.status(412).json({ message: "Required Data Not Provided" });
       return;
     }
     let currentMatchInfo: string =
-      "SELECT mtch.user_id as user_id, mtch.cancelled as cancelled, mtch.forfeit as forfeit, mtch.end_time as mtch_end_time, mtch.api_key as mtch_api_key FROM `match` mtch, map_stats mstat WHERE mtch.id=?";
-    const matchRow: RowDataPacket[] = await db.query(currentMatchInfo, req.body[0].match_id);
+      "SELECT user_id, cancelled, forfeit, end_time as mtch_end_time FROM `match` WHERE id = ?";
+    const matchRow: RowDataPacket[] = await db.query(currentMatchInfo, [req.body[0].match_id]);
     if (!matchRow.length) {
       res.status(404).json({ message: "No player stats data found." });
       return;
     } else if (
-      req.user &&
-      matchRow[0].user_id != req.user.id &&
-      !Utils.superAdminCheck(req.user)
+      matchRow[0].user_id != req.user!.id &&
+      !Utils.superAdminCheck(req.user!)
     ) {
       res
         .status(403)
@@ -934,8 +926,7 @@ router.delete("/", async (req, res, next) => {
       return;
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -948,7 +939,8 @@ router.delete("/", async (req, res, next) => {
 */
 const getPlayerStats: any = async (steamId: string, seasonId: number | null = null, pug: boolean = false) => {
   let playerStatSql =
-    `SELECT  steam_id, name, sum(kills) as kills,
+    `SELECT  MAX(steam_id) AS steam_id,
+    SUBSTRING_INDEX(GROUP_CONCAT(name ORDER BY id DESC SEPARATOR '\n'), '\n', 1) AS name, sum(kills) as kills,
     sum(deaths) as deaths, sum(assists) as assists, sum(k1) as k1,
     sum(k2) as k2, sum(k3) as k3,
     sum(k4) as k4, sum(k5) as k5, sum(v1) as v1,
@@ -966,7 +958,8 @@ const getPlayerStats: any = async (steamId: string, seasonId: number | null = nu
         AND     is_pug = ?
     )`;
   let playerStatSqlSeasons =
-    `SELECT  steam_id, name, sum(kills) as kills,
+    `SELECT  MAX(steam_id) AS steam_id,
+    SUBSTRING_INDEX(GROUP_CONCAT(name ORDER BY id DESC SEPARATOR '\n'), '\n', 1) AS name, sum(kills) as kills,
     sum(deaths) as deaths, sum(assists) as assists, sum(k1) as k1,
     sum(k2) as k2, sum(k3) as k3,
     sum(k4) as k4, sum(k5) as k5, sum(v1) as v1,
@@ -984,17 +977,17 @@ const getPlayerStats: any = async (steamId: string, seasonId: number | null = nu
         AND season_id = ?
         AND     is_pug = ?
     )`;
-  let winSql = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
+  let winSql = `SELECT COUNT(DISTINCT mtch.id) AS wins FROM \`match\` mtch
     JOIN player_stats pstat ON mtch.id = pstat.match_id 
     WHERE pstat.team_id = mtch.winner and pstat.steam_id = ?
     AND is_pug = ?`;
   if (pug) {
-    winSql = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
+    winSql = `SELECT COUNT(DISTINCT mtch.id) AS wins FROM \`match\` mtch
     JOIN player_stats pstat ON mtch.id = pstat.match_id 
     WHERE pstat.steam_id = ? AND pstat.winner = 1 
     AND is_pug = ?`;
   }
-  let winSqlSeasons = `SELECT COUNT(*) AS wins FROM \`match\` mtch 
+  let winSqlSeasons = `SELECT COUNT(DISTINCT mtch.id) AS wins FROM \`match\` mtch
     JOIN player_stats pstat ON mtch.id = pstat.match_id 
     WHERE pstat.team_id = mtch.winner and pstat.steam_id = ?
     AND mtch.season_id = ? AND is_pug = ?`;
@@ -1003,7 +996,8 @@ const getPlayerStats: any = async (steamId: string, seasonId: number | null = nu
   if (!seasonId) playerstats = await db.query(playerStatSql, [steamId, pug]);
   else playerstats = await db.query(playerStatSqlSeasons, [steamId, seasonId, pug]);
 
-  if (!playerstats.length) return;
+  // An aggregate without GROUP BY returns one all-NULL row when the player has no stats.
+  if (!playerstats.length || playerstats[0].steam_id == null) return;
 
   if (!seasonId) numWins = await db.query(winSql, [steamId, pug]);
   else
@@ -1018,7 +1012,7 @@ const getPlayerStats: any = async (steamId: string, seasonId: number | null = nu
     name:
       playerstats[0].name == null
         ? await Utils.getSteamName(playerstats[0].steam_id)
-        : playerstats[0].name.replace('/"/g', '\\"'),
+        : playerstats[0].name,
     kills: parseFloat(playerstats[0].kills),
     deaths: parseFloat(playerstats[0].deaths),
     assists: parseFloat(playerstats[0].assists),

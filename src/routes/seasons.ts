@@ -1,18 +1,20 @@
 /**
  * @swagger
  * resourcePath: /seasons
- * description: Express API router for seasons in get5.
+ * description: Express API router for seasons.
  */
 
 import { Router } from "express";
 
 import fetch from "node-fetch";
+import { importParticipants, type ChallongeParticipant } from "../services/challonge.js";
 
 const router = Router();
 
 import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
+import { audited, firstBody } from "../utility/audit.js";
 import { RowDataPacket } from "mysql2";
 import { SeasonObject } from "../types/seasons/SeasonObject.js";
 import { SeasonCvarObject } from "../types/seasons/SeasonCvarObject.js";
@@ -86,24 +88,17 @@ import { SeasonCvarObject } from "../types/seasons/SeasonCvarObject.js";
 router.get("/", async (req, res, next) => {
   try {
     let sql: string =
-      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, " +
-      "CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\": \"',sc.cvar_value,'\"')),'}') as cvars " +
-      "FROM season s LEFT OUTER JOIN season_cvar sc " +
-      "ON s.id = sc.season_id " +
-      "GROUP BY s.id, s.user_id, s.name, s.start_date, s.end_date";
+      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, u.name AS owner " +
+      "FROM season s LEFT JOIN user u ON u.id = s.user_id ";
     let seasons: RowDataPacket[] = await db.query(sql);
     if (!seasons.length) {
       res.status(404).json({ message: "No seasons found." });
       return;
     }
-    for (let row in seasons) {
-      if (seasons[row].cvars == null) delete seasons[row].cvars;
-      else seasons[row].cvars = JSON.parse(seasons[row].cvars);
-    }
+    await attachSeasonCvars(seasons);
     res.json({ seasons });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -134,25 +129,18 @@ router.get("/", async (req, res, next) => {
 router.get("/myseasons", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     let sql: string =
-      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, " +
-      "CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\"',': \"',sc.cvar_value,'\"')),'}') as cvars " +
-      "FROM season s LEFT OUTER JOIN season_cvar sc " +
-      "ON s.id = sc.season_id " +
-      "WHERE s.user_id = ? " +
-      "GROUP BY s.id, s.user_id, s.name, s.start_date, s.end_date";
+      "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, u.name AS owner " +
+      "FROM season s LEFT JOIN user u ON u.id = s.user_id " +
+      "WHERE s.user_id = ? ";
     let seasons: RowDataPacket[] = await db.query(sql, [req.user?.id]);
     if (!seasons.length) {
       res.status(404).json({ message: "No seasons found." });
       return;
     }
-    for (let row in seasons) {
-      if (seasons[row].cvars == null) delete seasons[row].cvars;
-      else seasons[row].cvars = JSON.parse(seasons[row].cvars);
-    }
+    await attachSeasonCvars(seasons);
     res.json({ seasons });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -190,38 +178,28 @@ router.get(
       // Check if super admin, if they are use this query.
       if (req.user && Utils.superAdminCheck(req.user)) {
         sql =
-          "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, " +
-          "CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\"',': \"',sc.cvar_value,'\"')),'}') as cvars " +
-          "FROM season s LEFT OUTER JOIN season_cvar sc " +
-          "ON s.id = sc.season_id " +
+          "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date " +
+          "FROM season s " +
           "WHERE s.end_date >= CURDATE() " +
-          "OR s.end_date IS NULL " +
-          "GROUP BY s.id, s.user_id, s.name, s.start_date, s.end_date";
+          "OR s.end_date IS NULL ";
         seasons = await db.query(sql, [req.user.id]);
       } else {
         sql =
-          "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date, " +
-          "CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\"',': \"',sc.cvar_value,'\"')),'}') as cvars " +
-          "FROM season s LEFT OUTER JOIN season_cvar sc " +
-          "ON s.id = sc.season_id " +
+          "SELECT s.id, s.user_id, s.name, s.start_date, s.end_date " +
+          "FROM season s " +
           "WHERE s.user_id = ? " +
           "AND (s.end_date >= CURDATE() " +
-          "OR s.end_date IS NULL) " +
-          "GROUP BY s.id, s.user_id, s.name, s.start_date, s.end_date";
+          "OR s.end_date IS NULL) ";
         seasons = await db.query(sql, [req.user?.id]);
       }
       if (!seasons.length) {
         res.status(404).json({ message: "No seasons found." });
         return;
       }
-      for (let row in seasons) {
-        if (seasons[row].cvars == null) delete seasons[row].cvars;
-        else seasons[row].cvars = JSON.parse(seasons[row].cvars);
-      }
+      await attachSeasonCvars(seasons);
       res.json({ seasons });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 );
@@ -258,24 +236,17 @@ router.get(
   Utils.ensureAuthenticated,
   async (req, res, next) => {
     try {
-      let sql: string =
-        "SELECT CONCAT('{', GROUP_CONCAT(DISTINCT CONCAT('\"',sc.cvar_name,'\"',': \"',sc.cvar_value,'\"')),'}') as cvars " +
-        "FROM season_cvar sc " +
-        "WHERE sc.season_id = ? ";
-      let cvar: RowDataPacket[] = await db.query(sql, [req.params.season_id]);
-      if (cvar[0].cvars == null) {
+      const season: RowDataPacket[] = [{ id: parseInt(req.params.season_id) }] as RowDataPacket[];
+      await attachSeasonCvars(season);
+      if (season[0].cvars == null) {
         res.status(404).json({
           message: "No cvars found for season id " + req.params.season_id + ".",
         });
         return;
       }
-      for (let row in cvar) {
-        if (cvar[row].cvars == null) delete cvar[row].cvars;
-        else cvar[row].cvars = JSON.parse(cvar[row].cvars);
-      }
-      res.json(cvar[0]);
+      res.json({ cvars: season[0].cvars });
     } catch (err) {
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 );
@@ -324,8 +295,7 @@ router.get("/:season_id", async (req, res, next) => {
     const season: string = JSON.parse(JSON.stringify(seasons[0]));
     res.json({ matches, season });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -359,9 +329,14 @@ router.get("/:season_id", async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.post("/", Utils.ensureAuthenticated, audited("season.create", { target: (req, body) => ({ type: "season", id: body?.id ?? null }), detail: (req) => String(firstBody(req).name ?? "") }), async (req, res, next) => {
   try {
     let defaultCvar: any = req.body[0].season_cvar;
+    const cvarError: string | null = Utils.validateCvars(defaultCvar);
+    if (cvarError) {
+      res.status(412).json({ message: cvarError });
+      return;
+    }
     let insertSet: SeasonObject | SeasonCvarObject = {
       user_id: req.user?.id,
       name: req.body[0].name,
@@ -376,8 +351,8 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         insertSet = {
           //@ts-ignore
           season_id: insertSeason.insertId,
-          cvar_name: key.replace(/"/g, '\\"'),
-          cvar_value: typeof defaultCvar[key] === 'string' ? defaultCvar[key].replace(/"/g, '\\"').replace(/\\/g, '\\\\') : defaultCvar[key]
+          cvar_name: key,
+          cvar_value: defaultCvar[key]
         };
         await db.query(sql, [insertSet]);
       }
@@ -388,8 +363,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
       id: insertSeason.insertId,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -430,7 +404,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
+router.put("/", Utils.ensureAuthenticated, audited("season.update", { target: (req) => ({ type: "season", id: Number(firstBody(req).season_id) || null }) }), async (req, res, next) => {
   let seasonUserId: string = "SELECT user_id FROM season WHERE id = ?";
   if (req.body[0].season_id == null) {
     res.status(400).json({ message: "No season ID provided." });
@@ -441,9 +415,8 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
     res.status(404).json({ message: "No season found." });
     return;
   } else if (
-    req.user &&
-    seasonRow[0].user_id != req.user.id &&
-    !Utils.superAdminCheck(req.user)
+    seasonRow[0].user_id != req.user!.id &&
+    !Utils.superAdminCheck(req.user!)
   ) {
     res
       .status(403)
@@ -452,6 +425,11 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
   } else {
     try {
       let defaultCvar: any = req.body[0].season_cvar;
+      const cvarError: string | null = Utils.validateCvars(defaultCvar);
+      if (cvarError) {
+        res.status(412).json({ message: cvarError });
+        return;
+      }
       let updateStmt: SeasonObject = {
         user_id: req.body[0].user_id,
         name: req.body[0].name,
@@ -463,7 +441,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       updateStmt = await db.buildUpdateStatement(updateStmt);
       // Force getting the end date.
       updateStmt.end_date = req.body[0].end_date;
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });
@@ -478,16 +456,15 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
         for (let key in defaultCvar) {
           let insertSet: SeasonCvarObject = {
             season_id: req.body[0].season_id,
-            cvar_name: key.replace(/"/g, '\\"'),
-            cvar_value: typeof defaultCvar[key] === 'string' ? defaultCvar[key].replace(/"/g, '\\"').replace(/\\/g, '\\\\') : defaultCvar[key],
+            cvar_name: key,
+            cvar_value: defaultCvar[key],
           };
           await db.query(sql, [insertSet]);
         }
       }
       res.json({ message: "Season updated successfully!" });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 });
@@ -528,31 +505,28 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
  *       500:
  *         $ref: '#/components/responses/Error'
  */
-router.delete("/", async (req, res, next) => {
-  let seasonUserId: string = "SELECT user_id FROM season WHERE id = ?";
-  const seasonRow: RowDataPacket[] = await db.query(seasonUserId, req.body[0].season_id);
-  if (seasonRow[0] == null) {
-    res.status(404).json({ message: "No season found." });
-    return;
-  } else if (
-    req.user &&
-    seasonRow[0].user_id != req.user.id &&
-    !Utils.superAdminCheck(req.user)
-  ) {
-    res
-      .status(403)
-      .json({ message: "User is not authorized to perform action." });
-    return;
-  } else {
-    try {
-      let deleteSql: string = "DELETE FROM season WHERE id = ?";
-      let seasonId: number = parseInt(req.body[0].season_id);
-      await db.query(deleteSql, [seasonId]);
-      res.json({ message: "Season deleted successfully!" });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+router.delete("/", Utils.ensureAuthenticated, audited("season.delete", { target: (req) => ({ type: "season", id: Number(firstBody(req).season_id) || null }) }), async (req, res, next) => {
+  try {
+    let seasonUserId: string = "SELECT user_id FROM season WHERE id = ?";
+    const seasonRow: RowDataPacket[] = await db.query(seasonUserId, [req.body[0]?.season_id]);
+    if (seasonRow[0] == null) {
+      res.status(404).json({ message: "No season found." });
+      return;
+    } else if (
+      seasonRow[0].user_id != req.user!.id &&
+      !Utils.superAdminCheck(req.user!)
+    ) {
+      res
+        .status(403)
+        .json({ message: "User is not authorized to perform action." });
+      return;
     }
+    let deleteSql: string = "DELETE FROM season WHERE id = ?";
+    let seasonId: number = parseInt(req.body[0].season_id);
+    await db.query(deleteSql, [seasonId]);
+    res.json({ message: "Season deleted successfully!" });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -596,57 +570,76 @@ router.delete("/", async (req, res, next) => {
 router.post("/challonge", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     const userInfo: RowDataPacket[] = await db.query("SELECT challonge_api_key FROM user WHERE id = ?", [req.user!.id]);
-    let challongeAPIKey: string | undefined | null = Utils.decrypt(userInfo[0].challonge_api_key);
+    const challongeAPIKey: string | undefined | null = Utils.decrypt(userInfo[0]?.challonge_api_key);
+    const tournamentId: string = String(req.body[0]?.tournament_id ?? "").trim();
     if (!challongeAPIKey) {
-      throw "No challonge API key provided for user.";
+      res.status(412).json({ message: "No challonge API key provided for user." });
+      return;
     }
-    let tournamentId: string = req.body[0].tournament_id;
-    let challongeResponse: any = await fetch(
-      "https://api.challonge.com/v1/tournaments/" +
-      tournamentId +
-      ".json?api_key=" +
-      challongeAPIKey +
-      "&include_participants=1");
-    let challongeData = await challongeResponse.json()
-    if (challongeData) {
-      // Insert the season.
-      let sqlString: string = "INSERT INTO season SET ?";
-      let seasonData: SeasonObject = {
-        user_id: req.user?.id,
-        name: challongeData.tournament.name,
-        start_date: new Date(challongeData.tournament.created_at),
-        is_challonge: true,
-        challonge_svg: challongeData.tournament.live_image_url,
-        challonge_url: tournamentId
+    if (!tournamentId) {
+      res.status(412).json({ message: "Please provide the Challonge tournament ID." });
+      return;
+    }
+    const challongeResponse = await fetch(
+      "https://api.challonge.com/v1/tournaments/" + encodeURIComponent(tournamentId) +
+        ".json?api_key=" + encodeURIComponent(challongeAPIKey) + "&include_participants=1"
+    );
+    const challongeData = (await challongeResponse.json()) as {
+      tournament?: {
+        name: string;
+        created_at: string;
+        live_image_url?: string;
+        participants?: ChallongeParticipant[];
       };
-      const insertSeason: RowDataPacket[] = await db.query(sqlString, seasonData);
-      // Check if teams were already in the call and add them to the database.
-      if (req.body[0]?.import_teams && challongeData.tournament.participants) {
-        sqlString = "INSERT INTO team (user_id, name, tag, challonge_team_id) VALUES ?";
-        let teamArray: Array<Array<Object>> = [];
-        challongeData.tournament.participants.forEach(async (team: { participant: { display_name: string; id: Object; }; }) => {
-          teamArray.push([
-            req.user!.id,
-            team.participant.display_name.substring(0, 40),
-            team.participant.display_name.substring(0, 40),
-            team.participant.id
-          ]);
-        });
-        await db.query(sqlString, [teamArray]);
-      }
-      res.json({
-        message: "Challonge season imported successfully!",
-        chal_res: challongeData.tournament.created_at,
-        //@ts-ignore
-        id: insertSeason.insertId,
-      });
+    };
+    const tournament = challongeData?.tournament;
+    if (!challongeResponse.ok || !tournament) {
+      res.status(502).json({ message: "Challonge did not return tournament " + tournamentId + "." });
+      return;
     }
-
-    
+    const seasonData: SeasonObject = {
+      user_id: req.user!.id,
+      name: tournament.name,
+      start_date: new Date(tournament.created_at),
+      is_challonge: true,
+      challonge_svg: tournament.live_image_url,
+      challonge_url: tournamentId
+    };
+    const insertSeason: any = await db.query("INSERT INTO season SET ?", [seasonData]);
+    let teamsMessage: string = "";
+    if (req.body[0]?.import_teams && tournament.participants?.length) {
+      const result = await importParticipants(req.user!.id, tournament.participants);
+      teamsMessage = ` Teams: ${result.imported} new, ${result.updated} updated.`;
+    }
+    res.json({
+      message: "Challonge season imported successfully!" + teamsMessage,
+      id: insertSeason.insertId
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
+
+/** Adds each season's default cvars as a { name: value } object (no "cvars" key when it has none).
+ * Built in code rather than with GROUP_CONCAT, which broke on quotes and the 1024 character limit.
+ * @function
+ * @memberof module:routes/seasons
+ * @param {RowDataPacket[]} seasons - Season rows with an id.
+ */
+async function attachSeasonCvars(seasons: RowDataPacket[]): Promise<void> {
+  if (!seasons.length) return;
+  const cvarRows: RowDataPacket[] = await db.query(
+    "SELECT season_id, cvar_name, cvar_value FROM season_cvar WHERE season_id IN (?)",
+    [seasons.map((season) => season.id)]
+  );
+  for (const season of seasons) {
+    const cvars: { [name: string]: string } = {};
+    for (const row of cvarRows) {
+      if (row.season_id == season.id) cvars[row.cvar_name] = row.cvar_value;
+    }
+    if (Object.keys(cvars).length > 0) season.cvars = cvars;
+    else delete season.cvars;
+  }
+}
 
 export default router;

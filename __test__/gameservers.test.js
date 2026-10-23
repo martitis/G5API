@@ -19,7 +19,7 @@ describe("Test the game server routes.", () => {
       {
         ip_string: "192.168.0.1",
         port: 27015,
-        display_name: "Phlex's Temp Server",
+        display_name: "Temp Server",
         rcon_password: password,
         public_server: 1,
       },
@@ -39,7 +39,7 @@ describe("Test the game server routes.", () => {
       {
         ip_string: "192.168.0.1",
         port: 27016,
-        display_name: "Phlex's Temp Server #2",
+        display_name: "Temp Server #2",
         rcon_password: password,
         public_server: 1,
       },
@@ -59,7 +59,7 @@ describe("Test the game server routes.", () => {
       {
         ip_string: "192.168.0.1",
         port: 27020,
-        display_name: "Phlex's Not So Temp Server",
+        display_name: "Permanent Server",
         rcon_password: password,
         public_server: 1,
       },
@@ -79,9 +79,19 @@ describe("Test the game server routes.", () => {
       .get("/servers/1")
       .expect("Content-Type", /json/)
       .expect(200)
+      // RCON passwords are never part of the server info.
+      .expect((result) => {
+        expect(result.body.server.rcon_password).toEqual(undefined);
+      });
+  });
+  it("Reveal the RCON password of our own server.", () => {
+    return request
+      .get("/servers/1/rcon")
+      .expect("Content-Type", /json/)
+      .expect(200)
       // Test to decrypt the password, if it matches then we decrypt/encrypt properly!
       .expect((result) => {
-        expect(result.body.server.rcon_password).toBe(password);
+        expect(result.body.rcon_password).toBe(password);
       });
   });
   it("Request the information of all users servers.", () => {
@@ -96,7 +106,7 @@ describe("Test the game server routes.", () => {
   it("Should transfer ownership to the second user.", () => {
     let updatedServerData = [
       {
-        display_name: "Phlex's Temp Server #2 EDITED",
+        display_name: "Temp Server #2 EDITED",
         user_id: 2,
         server_id: 2,
       },
@@ -132,10 +142,16 @@ describe("Test the game server routes.", () => {
         expect(result.body.rcon_password).toEqual(undefined);
       });
   });
+  it("Should not reveal the RCON password of a server we don't own.", () => {
+    return request
+      .get("/servers/2/rcon")
+      .expect("Content-Type", /json/)
+      .expect(403);
+  });
   it("Should try and fail to edit server 2.", () => {
     let updatedServerData = [
       {
-        display_name: "Phlex's Temp Server #2 EDITED BAD ACT0R",
+        display_name: "Temp Server #2 EDITED BAD ACT0R",
         user_id: 1,
         server_id: 2,
       },
@@ -149,5 +165,29 @@ describe("Test the game server routes.", () => {
       .expect((result) => {
         expect(result.body.message).toMatch(/not authorized/);
       });
+  });
+  it("Should reject an unknown practice action.", () => {
+    return request
+      .post("/servers/2/practice")
+      .set("Content-Type", "application/json")
+      .send([{ action: "restart" }])
+      .expect(412);
+  });
+  it("Should not start practice mode on a missing server.", () => {
+    return request
+      .post("/servers/999/practice")
+      .set("Content-Type", "application/json")
+      .send([{ action: "start" }])
+      .expect(404);
+  });
+  it("Should refuse a join password that would break the connect link.", () => {
+    return request
+      .post("/servers/")
+      .set("Content-Type", "application/json")
+      .send([{ ip_string: "10.0.0.9", port: 27015, rcon_password: "x", display_name: "Bad", join_password: "pass word;quit" }])
+      .expect(412);
+  });
+  it("Should report health with a working database.", () => {
+    return request.get("/health").expect(200).expect((result) => expect(result.body).toMatchObject({ status: "ok", db: true }));
   });
 });

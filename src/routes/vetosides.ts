@@ -1,7 +1,7 @@
 /**
  * @swagger
  * resourcePath: /vetosides
- * description: Express API router for veto sides in get5.
+ * description: Express API router for veto sides.
  */
 import { Router } from "express";
 
@@ -11,11 +11,12 @@ import {db} from "../services/db.js";
 
 import Utils from "../utility/utils.js";
 
-import GlobalEmitter from "../utility/emitter.js";
+import GlobalEmitter, { forMatch } from "../utility/emitter.js";
 import { RowDataPacket } from "mysql2";
 import { AccessMessage } from "../types/mapstats/AccessMessage.js";
 import { VetoSideObject } from "../types/vetoes/VetoSideObject.js";
 
+import logger from "../utility/logger.js";
 /**
  * @swagger
  *
@@ -83,7 +84,7 @@ router.get("/", async (req, res, next) => {
     }
     res.json({ vetoes });
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -127,7 +128,7 @@ router.get("/:match_id", async (req, res, next) => {
     }
     res.json({ vetoes });
   } catch (err) {
-    res.status(500).json({ message: (err as Error).toString() });
+    next(err);
   }
 });
 
@@ -183,21 +184,22 @@ router.get("/:match_id/stream", async (req, res, next) => {
       res.write(vetoEventString);
     };
     
-    GlobalEmitter.on("vetoSideUpdate", vetoStreamData);
+    const vetoStreamDataForMatch = forMatch(matchId, vetoStreamData);
+    GlobalEmitter.on("vetoSideUpdate", vetoStreamDataForMatch);
 
     res.write(vetoEventString);
 
     req.on("close", () => {
-      GlobalEmitter.removeListener("vetoSideUpdate", vetoStreamData);
+      GlobalEmitter.removeListener("vetoSideUpdate", vetoStreamDataForMatch);
       res.end();
     });
     req.on("disconnect", () => {
-      GlobalEmitter.removeListener("vetoSideUpdate", vetoStreamData);
+      GlobalEmitter.removeListener("vetoSideUpdate", vetoStreamDataForMatch);
       res.end();
     });
   } catch (err) {
-    console.error((err as Error).toString());
-    res.status(500).write(`event: error\ndata: ${(err as Error).toString()}\n\n`)
+    logger.error(err);
+    res.status(500).write(`event: error\ndata: Internal server error.\n\n`)
     res.end();
   }
 });
@@ -265,7 +267,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         side: req.body[0].side,
       };
       insertStmt = await db.buildUpdateStatement(insertStmt) as VetoSideObject;
-      if (!Object.keys(insertStmt)) {
+      if (Object.keys(insertStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No insert data has been provided." });
@@ -280,8 +282,7 @@ router.post("/", Utils.ensureAuthenticated, async (req, res, next) => {
         id: vetoSideId.insertId,
       });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 });
@@ -340,7 +341,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
         side: req.body[0].side,
       };
       updateStmt = await db.buildUpdateStatement(updateStmt) as VetoSideObject;
-      if (!Object.keys(updateStmt)) {
+      if (Object.keys(updateStmt).length === 0) {
         res
           .status(412)
           .json({ message: "No update data has been provided." });
@@ -351,8 +352,7 @@ router.put("/", Utils.ensureAuthenticated, async (req, res, next) => {
       GlobalEmitter.emit("vetoSideUpdate");
       res.json({ message: "Veto updated successfully!" });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: (err as Error).toString() });
+      next(err);
     }
   }
 });
@@ -419,8 +419,7 @@ router.delete("/", Utils.ensureAuthenticated, async (req, res, next) => {
           .json({ message: "Veto side data were not found, nothing to delete." });
       return;
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: err });
+      next(err);
     }
   }
 });

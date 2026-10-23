@@ -1,8 +1,146 @@
 import Utils from "./utils.js";
 import { Rcon } from "dathost-rcon-client";
 import fetch from "node-fetch";
-import { compare } from "compare-versions";
 import { SteamApiResponse } from "../types/serverrcon/SteamApiResponse.js";
+
+import logger from "./logger.js";
+/** Thrown when a value can't safely be passed as an RCON command argument. */
+export class RconArgumentError extends Error {}
+
+/** Quotes, semicolons and control characters would let an argument break out into another console command. */
+// eslint-disable-next-line no-control-regex -- rejecting control characters is the point
+const UNSAFE_RCON_CHARS = /[";\x00-\x1f\x7f]/;
+
+/**
+ * Validates a free-form RCON argument (nickname, URL, key).
+ * @param value - The value to check.
+ * @param label - Name used in the error message.
+ * @param maxLength - Maximum allowed length.
+ * @returns The value, if safe.
+ */
+export function safeRconArg(value: unknown, label: string, maxLength: number = 128): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength || UNSAFE_RCON_CHARS.test(value)) {
+    throw new RconArgumentError(`Invalid ${label}.`);
+  }
+  return value;
+}
+
+function safeSteamId(value: unknown): string {
+  if (typeof value !== "string" || !/^7656\d{13}$/.test(value)) {
+    throw new RconArgumentError("Invalid Steam ID.");
+  }
+  return value;
+}
+
+/** MatchZy round backup file name: matchzy_<matchid>_<mapnumber>_round<NN>.json */
+const MATCHZY_BACKUP_FILE = /^matchzy_(\d+)_(\d+)_round(\d+)\.json$/;
+
+/** The RCON command that restores a round backup on the game server.
+ * MatchZy reads matchzy_loadbackup's argument raw (ArgString), so quotes would become part of the file name;
+ * the name is sent bare, which is safe because only names matching MATCHZY_BACKUP_FILE get here.
+ * @throws RconArgumentError for anything that isn't a MatchZy backup file name.
+ */
+export function backupLoadCommand(backupName: unknown): string {
+  if (typeof backupName !== "string" || !MATCHZY_BACKUP_FILE.test(backupName)) {
+    throw new RconArgumentError("Invalid backup name.");
+  }
+  return `matchzy_loadbackup ${backupName}`;
+}
+
+/** MatchZy's reply when a restore did nothing (missing file, incomplete round data, bad JSON).
+ * The RCON reply carries what MatchZy printed for the console caller.
+ */
+const RESTORE_FAILED = /nothing restored|does not exist|incomplete|fatal|failed|error|could not|unable to/i;
+
+/** Whether the server's reply to matchzy_loadbackup says the restore failed. */
+export function restoreFailed(response: string | null | undefined): boolean {
+  return RESTORE_FAILED.test(String(response ?? ""));
+}
+
+export interface BackupEntry {
+  /** Exact file name to pass to matchzy_loadbackup. */
+  file: string;
+  /** Zero-based map number in the series. */
+  map_number: number;
+  round: number;
+  /** Whatever MatchZy printed after the file name (timestamp, teams, map, score). */
+  info: string;
+}
+
+/**
+ * Parses matchzy_listbackups output. Each line is either
+ * "<file> <timestamp> <team1> <team2> <map> <score1> <score2>" or a full path to the file;
+ * RCON output can also contain CR characters, padding bytes and message lines.
+ * @param output - Raw RCON output.
+ * @returns Backups, newest round first.
+ */
+export function parseBackupList(output: string): BackupEntry[] {
+  const backups = new Map<string, BackupEntry>();
+  for (const rawLine of output.split(/\r?\n/)) {
+    // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+    const line = rawLine.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    const firstToken = line.split(/\s+/)[0] ?? "";
+    const file = firstToken.split(/[\\/]/).pop() ?? "";
+    const match = MATCHZY_BACKUP_FILE.exec(file);
+    if (!match || backups.has(file)) continue;
+    backups.set(file, {
+      file,
+      map_number: parseInt(match[2]),
+      round: parseInt(match[3]),
+      info: line.slice(firstToken.length).trim()
+    });
+  }
+  return [...backups.values()].sort((a, b) => b.map_number - a.map_number || b.round - a.round);
+}
+
+export interface StatusPlayer {
+  /** The id `kickid` takes. */
+  userid: number;
+  name: string;
+  /** Null for bots. */
+  ping: number | null;
+  /** active, spawning, connecting, ... */
+  state: string;
+  bot: boolean;
+}
+
+const PLAYER_STATES = /^(active|spawning|spawned|connecting|connected|challenging|loading|new)$/i;
+
+/**
+ * The players section of CS2's `status` ("id time ping loss state rate adr 'name'" rows between
+ * "---------players--------" and "#end"). CS2 doesn't print Steam IDs there. Slot 65535 (an unfilled or GOTV
+ * slot) and rows without a name are skipped.
+ */
+export function parseStatusPlayers(output: string): StatusPlayer[] {
+  const players: StatusPlayer[] = [];
+  let inPlayers = false;
+  for (const rawLine of output.split(/\r?\n/)) {
+    // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+    const line = rawLine.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    if (/^-+\s*players\s*-+$/i.test(line)) {
+      inPlayers = true;
+      continue;
+    }
+    if (!inPlayers) continue;
+    if (line.startsWith("#end")) break;
+    const row = /^(\d+)\s+(.*?)\s*'(.*)'$/.exec(line);
+    if (!row) continue;
+    const userid = parseInt(row[1]);
+    const name = row[3];
+    if (userid === 65535 || !name) continue;
+    const fields = row[2].split(/\s+/);
+    const bot = fields.includes("BOT");
+    const ping = bot ? null : parseInt(fields[1] ?? "");
+    players.push({
+      userid,
+      name,
+      ping: ping === null || Number.isNaN(ping) ? null : ping,
+      state: fields.find((field) => PLAYER_STATES.test(field))?.toLowerCase() ?? "",
+      bot
+    });
+  }
+  return players;
+}
 
 /**
  * Creates a new server object to run various tasks.
@@ -35,33 +173,56 @@ class ServerRcon {
   async execute(commandString: string): Promise<string> {
     try {
       await this.rcon.connect();
-      const response = await this.rcon.send(commandString);
-      this.rcon.disconnect();
-      return response;
+      return await this.rcon.send(commandString);
     } catch (error) {
-      console.error("[RCON] Got error: " + error);
+      logger.error({ err: error }, "[RCON] Got error");
       throw error;
+    } finally {
+      try {
+        this.rcon.disconnect();
+      } catch {
+        // Already closed.
+      }
     }
   }
 
   /**
-   * Retrieve Get5's version from the server.
+   * Runs a command that replies with JSON (get5_status, get5_web_available).
+   * @returns The parsed reply, or null if the command is unknown or the reply isn't JSON.
+   */
+  private async executeJson(commandString: string): Promise<any> {
+    const response: string = await this.execute(commandString);
+    const start = response.indexOf("{");
+    if (start < 0) return null;
+    try {
+      return JSON.parse(response.slice(start, response.lastIndexOf("}") + 1));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * MatchZy's get5_status: gamestate, matchid, map_number, team scores...
+   * @returns The status, or null if MatchZy isn't answering.
+   */
+  async getMatchStatus(): Promise<any> {
+    if (process.env.NODE_ENV === "test") {
+      return null;
+    }
+    return this.executeJson("get5_status");
+  }
+
+  /**
+   * Retrieve the plugin version from the server (MatchZy reports a Get5-compatible version).
    * @returns The version of the plugin if found, unknown otherwise.
    */
   async getGet5Version(): Promise<string> {
-    if (process.env.NODE_ENV === "test") {
-      return "unknown";
-    }
-    let get5Status = await this.execute("get5_status");
-    if (get5Status.includes("Unknown command")) {
-      return "unknown";
-    }
-    let get5JsonStatus = await JSON.parse(get5Status);
-    return get5JsonStatus.plugin_version;
+    const status = await this.getMatchStatus();
+    return status?.plugin_version ?? "unknown";
   }
 
   /**
-   * Checks the availability of the game server via a get5 call.
+   * Checks that MatchZy is running and has no match loaded.
    * @function
    */
   async isGet5Available(): Promise<boolean> {
@@ -69,31 +230,24 @@ class ServerRcon {
       if (process.env.NODE_ENV === "test") {
         return false;
       }
-      let get5Status = await this.execute("get5_web_available");
-      if (get5Status.includes("Unknown command")) {
-        let get5Version = await this.getGet5Version();
-        if (compare(get5Version, "0.13.1", ">=")) {
-          return true;
-        } else {
-          console.log("Either get5 or G5WS plugin is missing.");
-          return false;
-        }
-      }
-      let get5JsonStatus = await JSON.parse(get5Status);
-      if (get5JsonStatus.gamestate != 0) {
-        console.log("Server already has a get5 match setup.");
+      const available = await this.executeJson("get5_web_available");
+      if (available == null) {
+        logger.info("MatchZy did not answer get5_web_available; is the plugin installed?");
         return false;
-      } else {
-        return true;
       }
+      if (available.gamestate != 0) {
+        logger.info("Server already has a match loaded.");
+        return false;
+      }
+      return true;
     } catch (err) {
-      console.error("Error on isAvailable server: " + (err as Error).toString());
+      logger.error({ err }, "Error on isAvailable server");
       throw err;
     }
   }
 
   /**
-   * Checks the availability of the game server via a get5 call.
+   * Checks that MatchZy answers on the game server (its get5_web_available command).
    * @function
    */
   async isServerAlive(): Promise<boolean> {
@@ -104,7 +258,7 @@ class ServerRcon {
       let get5Status = await this.execute("net_public_adr");
       return get5Status != "";
     } catch (err) {
-      console.error("Error on game server: " + (err as Error).toString());
+      logger.error({ err }, "Error on game server");
       return false;
     }
   }
@@ -132,7 +286,7 @@ class ServerRcon {
       
       let data: SteamApiResponse = await response.json() as SteamApiResponse;
       if (!data.response.up_to_date) {
-        console.log(
+        logger.warn(
           `Server is not up to date! Current version: ${serverVersion} - Latest version: ${data.response.required_version}`
         );
         return false;
@@ -140,7 +294,7 @@ class ServerRcon {
         return true;
       }
     } catch (err) {
-      console.error("Error on game server: " + (err as Error).toString());
+      logger.error({ err }, "Error on game server");
       return false;
     }
   }
@@ -159,7 +313,7 @@ class ServerRcon {
       let returnValue = await this.execute(rconCommandString);
       return returnValue;
     } catch (err) {
-      console.error("Error on sendRCON to server: " + (err as Error).toString());
+      logger.error({ err }, "Error on sendRCON to server");
       throw err;
     }
   }
@@ -167,7 +321,7 @@ class ServerRcon {
   /**
    * Sets the given URL and API key for a match
    * @function
-   * @param get5URLString - The string of the host where the Get5 API is stored.
+   * @param get5URLString - The URL MatchZy loads the match config from (GET /matches/:id/config).
    * @param get5APIKeyString - The string API key for the game server to authenticate.
    * @returns True if we set everything, false on failure, throw error if there is a problem.
    */
@@ -179,28 +333,29 @@ class ServerRcon {
       if (process.env.NODE_ENV === "test") {
         return false;
       }
-      let loadMatchResponse: string;
-      let get5Version = await this.getGet5Version();
-      if (compare(get5Version, "0.13.1", ">=")) {
-        loadMatchResponse = await this.execute(
-          `get5_loadmatch_url "${get5URLString}" "Authorization" "${get5APIKeyString}"`
-        );
-      } else {
-        loadMatchResponse = await this.execute(
-          `get5_loadmatch_url "${get5URLString}"`
-        );
-      }
-
-      if (loadMatchResponse.includes("Failed")) return false;
-      else if (loadMatchResponse.includes("another match already loaded"))
+      safeRconArg(get5URLString, "match config URL", 512);
+      safeRconArg(get5APIKeyString, "match API key");
+      const expectedMatchId: string | undefined = /\/matches\/(\d+)\/config/.exec(get5URLString)?.[1];
+      const loadMatchResponse: string = await this.execute(
+        `matchzy_loadmatch_url "${get5URLString}" "Authorization" "${get5APIKeyString}"`
+      );
+      // MatchZy only replies on failure (match already set up, invalid URL, HTTP error, invalid config).
+      if (/already|invalid|failed|error/i.test(loadMatchResponse)) {
+        logger.error("MatchZy refused the match config: " + loadMatchResponse.trim());
         return false;
-
-      if (compare(get5Version, "0.13.1", "<")) {
-        await this.execute(`get5_web_api_key ${get5APIKeyString}`);
       }
-      return true;
+      // The download and validation happen on the game server; confirm the match actually loaded.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const status = await this.getMatchStatus();
+        if (status && status.gamestate !== "none" && String(status.matchid) === expectedMatchId) {
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      logger.error(`MatchZy did not load match ${expectedMatchId}; check the game server's MatchZy log.`);
+      return false;
     } catch (err) {
-      console.error("Error on preparing match to server: " + (err as Error).toString());
+      logger.error({ err }, "Error on preparing match to server");
       throw err;
     }
   }
@@ -208,18 +363,23 @@ class ServerRcon {
   /**
    * Function that will call a match to an end, if it has not been completed normally.
    * @function
+   * @param winner - "team1" or "team2" to end with that team as the winner (forfeit); omit to end without a winner.
    * @returns True if we succeed, false otherwise.
    */
-  async endGet5Match(): Promise<boolean> {
+  async endGet5Match(winner?: "team1" | "team2"): Promise<boolean> {
     try {
       if (process.env.NODE_ENV === "test") {
         return false;
       }
-      let loadMatchResponse = await this.execute("get5_endmatch");
-      if (loadMatchResponse) return false;
+      const response = await this.execute(winner ? `css_endmatch ${winner}` : "css_endmatch");
+      // MatchZy prints a usage hint or "no match" message when it refuses; success prints nothing to the console.
+      if (/usage|unknown command|no match/i.test(response)) {
+        logger.error("MatchZy refused to end the match: " + response.trim());
+        return false;
+      }
       return true;
     } catch (err) {
-      console.error("RCON error on ending match: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on ending match");
       return false;
     }
   }
@@ -234,10 +394,10 @@ class ServerRcon {
       if (process.env.NODE_ENV === "test") {
         return false;
       }
-      await this.execute("sm_pause");
+      await this.execute("css_forcepause");
       return true;
     } catch (err) {
-      console.error("RCON error on pause: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on pause");
       return false;
     }
   }
@@ -252,10 +412,10 @@ class ServerRcon {
       if (process.env.NODE_ENV === "test") {
         return false;
       }
-      await this.execute("sm_unpause");
+      await this.execute("css_forceunpause");
       return true;
     } catch (err) {
-      console.error("RCON error on unpause server: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on unpause server");
       return false;
     }
   }
@@ -270,21 +430,26 @@ class ServerRcon {
    */
   async addUser(teamString: string, steamId: string, nickName: string | null = null): Promise<string> {
     try {
+      if (!["team1", "team2", "spec"].includes(teamString)) {
+        throw new RconArgumentError("Invalid team.");
+      }
+      safeSteamId(steamId);
+      if (nickName) safeRconArg(nickName, "nickname", 64);
       if (process.env.NODE_ENV === "test") {
         return "Cannot add user on a test instance. Please use a development or production environment.";
       }
       let loadMatchResponse: string;
       if (nickName)
         loadMatchResponse = await this.execute(
-          `get5_addplayer ${steamId} ${teamString} "${nickName}"`
+          `matchzy_addplayer ${steamId} ${teamString} "${nickName}"`
         );
       else
         loadMatchResponse = await this.execute(
-          `get5_addplayer ${steamId} ${teamString}`
+          `matchzy_addplayer ${steamId} ${teamString}`
         );
       return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on addUser: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on addUser");
       throw err;
     }
   }
@@ -298,15 +463,22 @@ class ServerRcon {
    */
   async addCoach(teamString: string, steamId: string): Promise<string> {
     try {
+      if (!["team1", "team2"].includes(teamString)) {
+        throw new RconArgumentError("Invalid team.");
+      }
+      safeSteamId(steamId);
       if (process.env.NODE_ENV === "test") {
         return "Cannot add coaches on a test instance. Please use a development or production environment.";
       }
-      let loadMatchResponse = await this.execute(
-        `get5_addcoach ${steamId} ${teamString}`
+      // MatchZy has no add-coach command: a coach must be a listed team member and types .coach in game.
+      let loadMatchResponse = await this.execute(`matchzy_addplayer ${steamId} ${teamString}`);
+      return (
+        loadMatchResponse +
+        (loadMatchResponse.trim() ? "\n" : "") +
+        "Added to the team. The coach must type .coach in game to take the coach slot."
       );
-      return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on addCoach: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on addCoach");
       throw err;
     }
   }
@@ -319,31 +491,35 @@ class ServerRcon {
    */
   async removeUser(steamId: string): Promise<string> {
     try {
+      safeSteamId(steamId);
       if (process.env.NODE_ENV === "test") {
         return "Cannot remove users on a test instance. Please use a development or production environment.";
       }
-      let loadMatchResponse = await this.execute(`get5_removeplayer ${steamId}`);
+      let loadMatchResponse = await this.execute(`matchzy_removeplayer ${steamId}`);
       return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on removeUser: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on removeUser");
       throw err;
     }
   }
 
   /**
-   * Retrieves a list of backups on the game server.
+   * Retrieves the list of round backups for a match on the game server.
    * @function
-   * @returns Returns the response from the server.
+   * @param {String|Number} matchId - The match ID to list backups for.
+   * @returns The parsed backups, newest first.
    */
-  async getBackups(): Promise<string> {
+  async getBackups(matchId: string | number): Promise<BackupEntry[]> {
     try {
       if (process.env.NODE_ENV === "test") {
-        return "Cannot get backups on a test instance. Please use a development or production environment.";
+        return [];
       }
-      let loadMatchResponse = await this.execute("get5_listbackups");
-      return loadMatchResponse;
+      const id = parseInt(String(matchId));
+      if (isNaN(id)) throw new RconArgumentError("Invalid match ID.");
+      let listResponse = await this.execute(`matchzy_listbackups ${id}`);
+      return parseBackupList(listResponse);
     } catch (err) {
-      console.error("RCON error on getBackups: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on getBackups");
       throw err;
     }
   }
@@ -351,37 +527,61 @@ class ServerRcon {
   /**
    * Attempts to restore a given backup on the server
    * @function
-   * @param {String} backupName - The filename of the backup on the server.
+   * @param {String} backupName - The filename of the backup on the server, as returned by getBackups.
    * @returns Returns the response from the server.
    */
   async restoreBackup(backupName: string): Promise<string> {
     try {
+      const command: string = backupLoadCommand(backupName);
       if (process.env.NODE_ENV === "test") {
         return "Cannot restore backups on a test instance. Please use a development or production environment.";
       }
-      let loadMatchResponse = await this.execute(`get5_loadbackup ${backupName}`);
+      let loadMatchResponse = await this.execute(command);
       return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on restore backup: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on restore backup");
       throw err;
     }
   }
 
   /**
+   * Sets cvars on the running server (e.g. the callback URLs after the API's address changed).
+   * Names and values go through the same checks as every other RCON argument.
+   * @function
+   * @param {Object} cvars - { cvar_name: value }
+   * @returns The server's replies.
+   */
+  async setCvars(cvars: Record<string, string>): Promise<string> {
+    const replies: string[] = [];
+    for (const [name, value] of Object.entries(cvars)) {
+      if (!/^[A-Za-z0-9_]{1,64}$/.test(name)) throw new RconArgumentError(`Invalid cvar name: ${name}`);
+      safeRconArg(value, name, 512);
+      if (process.env.NODE_ENV === "test") continue;
+      replies.push(await this.execute(`${name} "${value}"`));
+    }
+    return replies.filter(Boolean).join(" ");
+  }
+
+  /**
    * Attempts to restore a given backup from the API to a new server.
    * @function
-   * @param {String} backupName - The filename of the backup on the API.
+   * @param {String} backupUrl - The URL of the backup on the API.
+   * @param {String} matchApiKey - The match API key, sent as the Authorization header when the server downloads it.
    * @returns Returns the response from the server.
    */
-  async restoreBackupFromURL(backupName: string): Promise<string> {
+  async restoreBackupFromURL(backupUrl: string, matchApiKey: string): Promise<string> {
     try {
+      safeRconArg(backupUrl, "backup URL", 512);
+      safeRconArg(matchApiKey, "match API key");
       if (process.env.NODE_ENV === "test") {
         return "Cannot restore backups on a test instance. Please use a development or production environment.";
       }
-      let loadMatchResponse = await this.execute(`get5_loadbackup_url "${backupName}"`);
+      let loadMatchResponse = await this.execute(
+        `matchzy_loadbackup_url "${backupUrl}" "Authorization" "${matchApiKey}"`
+      );
       return loadMatchResponse;
     } catch (err) {
-      console.error("RCON error on restore backup: " + (err as Error).toString());
+      logger.error({ err }, "RCON error on restore backup");
       throw err;
     }
   }
