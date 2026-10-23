@@ -263,8 +263,8 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
     written to `map_stats` (a map that never went live is inserted with its name from `get5_status.maps`). Earlier
     maps the panel still shows as running are closed with the winner taken from their scores, and the series score is
     updated. Maps whose score was resynced get `stats_incomplete` and a note on the match page. Verified against the
-    real server: match 3's stale map score was corrected from `get5_status`. Not done: PUG stats for a map closed this
-    way (`updatePugStats` only runs on a real `map_result`).
+    real server: match 3's stale map score was corrected from `get5_status`. PUG maps closed this way update their
+    player stats like a real `map_result` (`updatePugStats`).
   - [x] **API startup catch-up:** the sweep's first pass runs straight away.
   - [x] Tests: assessment unit tests (ok / offline / interrupted / load grace / resync / two-strike rule) and an
     integration test with a fake `get5_status` (insert, stable-score rule, interrupted, dismiss, reload, clearing).

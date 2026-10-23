@@ -6,6 +6,7 @@ import { RowDataPacket } from "mysql2";
 import { db } from "./db.js";
 import GameServer from "../utility/serverrcon.js";
 import GlobalEmitter from "../utility/emitter.js";
+import Utils from "../utility/utils.js";
 import logger from "../utility/logger.js";
 import {
   assessServerState,
@@ -73,11 +74,15 @@ async function applyResync(match: RowDataPacket, resync: Resync): Promise<void> 
     if (!rows.length) continue;
     const { team1_score, team2_score } = rows[0];
     const winner = team1_score > team2_score ? match.team1_id : team2_score > team1_score ? match.team2_id : null;
-    await db.query("UPDATE map_stats SET end_time = ?, winner = ? WHERE id = ? AND end_time IS NULL", [
+    const closed: any = await db.query("UPDATE map_stats SET end_time = ?, winner = ? WHERE id = ? AND end_time IS NULL", [
       sqlNow(),
       winner,
       rows[0].id
     ]);
+    // Same as a real map_result: PUG player stats get their team and result (teams are kept until series end).
+    if (closed.affectedRows && Number(match.is_pug) === 1) {
+      await Utils.updatePugStats(match.id, rows[0].id, match.team1_id, match.team2_id, winner, false);
+    }
   }
   if (resync.series) {
     await db.query("UPDATE `match` SET team1_score = ?, team2_score = ? WHERE id = ?", [
@@ -105,7 +110,7 @@ export async function checkMatch(
   getStatus: (serverId: number) => Promise<Get5Status | null> = fetchStatus
 ): Promise<RowDataPacket | null> {
   const matches: RowDataPacket[] = await db.query(
-    "SELECT id, server_id, team1_id, team2_id, team1_score, team2_score, start_time, end_time, cancelled " +
+    "SELECT id, server_id, team1_id, team2_id, team1_score, team2_score, start_time, end_time, cancelled, is_pug " +
       "FROM `match` WHERE id = ?",
     [matchId]
   );
