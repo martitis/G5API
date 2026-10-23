@@ -99,7 +99,8 @@ The image runs the same migrations at start. `config/*.json` never goes into the
 container builds `production.json` from environment variables (`config/production.json.template`).
 
 ## Security checklist
-- Rotate the Steam API key if you used the one from upstream history (commits `1916f7b`, `4ff0e1e`).
+- Use your own Steam API key. Upstream's history has the original author's key in an old `config/production.json`
+  (commit `1916f7b`). Never copy it, and never commit a `config/*.json` (they're gitignored).
 - Never run production with `NODE_ENV=test`. The mock login also needs `G5API_MOCK_AUTH=1`, so it stays off, but the
   test config isn't meant for real data.
 - Keep `config/production.json` readable only by the user running pm2 (`chmod 600`).
