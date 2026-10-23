@@ -279,8 +279,9 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
   cookies) for HTTP logs in production, the error handler and unhandled rejections; morgan once in development
   (it ran twice); no HTTP log in tests
 - [x] All `console.*` calls in `src/` moved to the logger (errors as `{ err }`, so pino keeps the stack)
-- [ ] Rotate the Steam API key leaked in upstream history (`1916f7b`, `4ff0e1e`) if still used. **Needs you**: only
-  the key's owner can do it at https://steamcommunity.com/dev/apikey (listed in DEPLOY.md's security checklist)
+- [x] Leaked Steam API key in upstream history (`1916f7b`/`f30052e` add `config/production.json`, `4ff0e1e`/`a1a1293`
+  delete it): checked on 2026-10-23. It is the upstream author's key (`D2B1…8011`), not yours. Your key (`F865…7802`,
+  in `config/development.json`) is different and appears in no commit of G5API or G5V, so there's nothing to rotate
 - [x] MockStrategy only with NODE_ENV=test **and** `G5API_MOCK_AUTH=1` (set in the jest configs)
 - [x] `docker-compose.yml` builds this repo and uses your GHCR panel image; `.dockerignore` keeps `config/*.json`
   secrets and `node_modules` out of the image
