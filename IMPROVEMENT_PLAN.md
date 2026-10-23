@@ -156,7 +156,7 @@ Facts below were checked against MatchZy's source (MatchManagement.cs, ReadySyst
 - [x] Backend fixes found while porting: `group_concat_max_len` (big teams' member JSON was cut), password change
   always needs the old password (`force_reset` used to skip the check), map list validation, Challonge season import
   (shared `importParticipants()`), team owner name, lint cap 681. These commits are on `phase2-matchzy` (not pushed)
-- [ ] Merge `phase4-vue3` into G5V (after a manual check of every page against a running API)
+- [x] Merged into G5V `master` on 2026-10-23 through martitis/G5V-newgen#5 (the Vite panel replaced the Vue 2 code)
 
 ## Phase 5: Features
 - [x] **5.0 Match list redesign** (branches `phase5-match-list` in G5API and G5V-next):
@@ -293,7 +293,8 @@ State on 2026-10-23: **`development`** is the working branch in both repos (push
 - The old `../G5V-next` folder is a detached leftover worktree; delete it with `git worktree remove ../G5V-next`
   from `../G5V` when you no longer need it.
 - [x] Push `phase5-match-list` and `development` in both repos
-- [x] PRs opened 2026-10-23: martitis/G5API-newgen#9 and martitis/G5V-newgen#5 (`development` → `master`; merge G5API first or together)
+- [x] PRs martitis/G5API-newgen#9 and martitis/G5V-newgen#5 (`development` → `master`) merged on 2026-10-23; CI green on
+  `master` in both repos, and `development` fast-forwarded to `master`
 - [x] GitHub hardening (2026-10-23, both repos):
   - only `master` and `development` remain on GitHub; the other branches were deleted after being tagged `archive/<branch>`
     (restore one with `git push origin archive/<name>:refs/heads/<name>`)
@@ -303,8 +304,8 @@ State on 2026-10-23: **`development`** is the working branch in both repos (push
     - `master` and `development`: no force push or deletion
   - Actions: the workflow token is read-only by default and workflows can't approve PRs; runs from outside
     contributors' PRs wait for approval
-- [ ] Before merging the panel: click through every page against a running API (Phase 4 open item), PUG queue with two
-  Steam accounts, a tournament with real matches
+- [ ] Still to do on a real setup (after the merge): PUG queue with two Steam accounts, a tournament with real
+  matches
 
 ## Verification checklist
 - Unit: config builder snapshots, sanitizers, each webhook event (null attacker, non-roster player), auth matrix per mutating route
