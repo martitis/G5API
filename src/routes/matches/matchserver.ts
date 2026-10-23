@@ -35,6 +35,7 @@ import { MatchData } from "../../types/matches/MatchData.js";
 import GlobalEmitter from "../../utility/emitter.js";
 
 import logger from "../../utility/logger.js";
+import { checkMatch, dismissServerState, getServerState } from "../../services/heartbeat.js";
 /**
  * @swagger
  *
@@ -1534,6 +1535,159 @@ router.get("/:match_id/server/status", Utils.ensureAuthenticated, async (req, re
     next(err);
   }
 });
+
+/** The public part of a match's server state (no addresses). */
+const publicServerState = (row: RowDataPacket | null) =>
+  row
+    ? {
+        state: row.state,
+        reason: row.reason,
+        checked_at: row.checked_at,
+        last_seen: row.last_seen,
+        gamestate: row.gamestate,
+        server_matchid: row.server_matchid,
+        interrupted_at: row.interrupted_at,
+        dismissed: row.dismissed_at != null,
+        resynced_at: row.resynced_at
+      }
+    : null;
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/state:
+ *   get:
+ *     description: >
+ *       What the API's heartbeat (get5_status every 30 s) last saw for the match's game server. state is ok, offline
+ *       (no RCON answer twice in a row) or interrupted (no match or another match loaded, e.g. after a restart).
+ *       Public. null before the first check, or when the match is over.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ server_state: { state, reason, checked_at, last_seen, gamestate, interrupted_at, dismissed, resynced_at } | null }"
+ */
+router.get("/:match_id/server/state", async (req, res, next) => {
+  try {
+    res.json({ server_state: publicServerState(await getServerState(req.params.match_id)) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/check:
+ *   post:
+ *     description: >
+ *       Checks the game server now and resyncs scores that differ (the "Resync from server" button). Owner or admin.
+ *       A problem is only reported after two checks in a row, so one call can still answer ok.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: "{ message, server_state }"
+ */
+router.post(
+  "/:match_id/server/check",
+  Utils.ensureAuthenticated,
+  audited("match.server_check"),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      const row = await checkMatch(Number(req.params.match_id));
+      res.json({ message: "Server checked.", server_state: publicServerState(row) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/reload:
+ *   post:
+ *     description: >
+ *       Loads the match onto its server again (matchzy_loadmatch_url) without touching the panel's stats, e.g. after
+ *       the server restarted. MatchZy starts the series over; to continue from a round, restore a backup instead
+ *       (a backup carries the whole match, so it works on a server with no match loaded). Owner or admin.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: Loaded.
+ *       502:
+ *         description: MatchZy did not load the match.
+ */
+router.post(
+  "/:match_id/server/reload",
+  Utils.ensureAuthenticated,
+  audited("match.server_reload"),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      const rows: RowDataPacket[] = await db.query("SELECT api_key FROM `match` WHERE id = ?", [req.params.match_id]);
+      const serverUpdate: GameServer = await getGameServer(req.params.match_id);
+      const loaded: boolean = await serverUpdate.prepareGet5Match(
+        Utils.apiUrl("/matches/" + req.params.match_id + "/config"),
+        rows[0].api_key
+      );
+      if (!loaded && process.env.NODE_ENV !== "test") {
+        res.status(502).json({ message: "MatchZy did not load the match. Check the game server's MatchZy log." });
+        return;
+      }
+      await checkMatch(Number(req.params.match_id)).catch(() => null);
+      res.json({ message: "Match loaded on the server again." });
+    } catch (err) {
+      if (err instanceof RconArgumentError) {
+        res.status(412).json({ message: err.message });
+        return;
+      }
+      next(err);
+    }
+  }
+);
+
+/**
+ * @swagger
+ *
+ * /matches/:match_id/server/dismiss:
+ *   post:
+ *     description: Hides the offline/interrupted warning until the server is fine and then fails again. Owner or admin.
+ *     tags:
+ *       - matches
+ *     responses:
+ *       200:
+ *         description: Dismissed.
+ */
+router.post(
+  "/:match_id/server/dismiss",
+  Utils.ensureAuthenticated,
+  audited("match.server_dismiss"),
+  async (req, res, next) => {
+    try {
+      const errMessage: AccessMessage | null = await Utils.getUserMatchAccess(req.params.match_id, req.user!, true);
+      if (errMessage != null) {
+        res.status(errMessage.status).json({ message: errMessage.message });
+        return;
+      }
+      await dismissServerState(req.params.match_id);
+      res.json({ message: "Warning dismissed." });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 const READY_CACHE_MS = 5000;
 const readyCache = new Map<string, { at: number; body: unknown }>();

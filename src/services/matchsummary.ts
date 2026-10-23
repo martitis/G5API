@@ -58,6 +58,8 @@ export interface MatchSummary {
   pause: { type: string | null; team: string | null } | null;
   /** Minutes since the match was loaded while its first map hasn't gone live (no-show check); null otherwise. */
   waiting_minutes: number | null;
+  /** The heartbeat's last word on the game server while the match runs; null when it is fine or unchecked. */
+  server_state: { state: "offline" | "interrupted"; dismissed: boolean } | null;
   /** Only for viewers who may connect (owner, admins, players of both teams, spectators). */
   server: {
     name: string | null;
@@ -168,6 +170,10 @@ export function buildSummary(input: SummaryInput): MatchSummary {
     waiting_minutes:
       status === "warmup" && maps.length === 0 && startTime
         ? Math.max(0, Math.floor(((input.now ?? new Date()).getTime() - startTime.getTime()) / 60000))
+        : null,
+    server_state:
+      !["finished", "cancelled"].includes(status) && (m.server_state === "offline" || m.server_state === "interrupted")
+        ? { state: m.server_state, dismissed: m.server_state_dismissed_at != null }
         : null,
     server:
       input.canConnect && !["finished", "cancelled"].includes(status) && m.ip_string
@@ -295,12 +301,14 @@ export async function loadSummaries(
       "m.season_id, m.is_pug, m.private_match, u.name AS owner_name, " +
       "t1.tag AS team1_tag, t1.logo AS team1_logo, t1.flag AS team1_flag, " +
       "t2.tag AS team2_tag, t2.logo AS team2_logo, t2.flag AS team2_flag, " +
-      "gs.display_name AS server_name, gs.ip_string, gs.port, gs.gotv_port, gs.join_password " +
+      "gs.display_name AS server_name, gs.ip_string, gs.port, gs.gotv_port, gs.join_password, " +
+      "mss.state AS server_state, mss.dismissed_at AS server_state_dismissed_at " +
       "FROM `match` m " +
       "LEFT JOIN user u ON u.id = m.user_id " +
       "LEFT JOIN team t1 ON t1.id = m.team1_id " +
       "LEFT JOIN team t2 ON t2.id = m.team2_id " +
       "LEFT JOIN game_server gs ON gs.id = m.server_id " +
+      "LEFT JOIN match_server_state mss ON mss.match_id = m.id " +
       `${whereSql} ORDER BY (${ACTIVE_SQL}) DESC, m.id DESC LIMIT ? OFFSET ?`,
     [...args, limit, offset]
   );

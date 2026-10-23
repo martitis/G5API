@@ -1,5 +1,7 @@
 import { agent } from 'supertest';
 import app from '../app.js';
+import { checkMatch } from '../src/services/heartbeat.js';
+import { db } from '../src/services/db.js';
 const request = agent(app);
 
 describe("Test the matches routes", () => {
@@ -335,6 +337,60 @@ describe("Test the matches routes", () => {
       const ready = await request.get(`/matches/${id}/ready`).expect(200);
       expect(ready.body.ready).toBeNull();
       await request.get("/matches/99999/ready").expect(404);
+    });
+  });
+
+  describe("server heartbeat", () => {
+    it("Should resync missed scores, then flag a restarted server and let an admin dismiss it.", async () => {
+      const created = await request.post("/matches/").set("Content-Type", "application/json")
+        .send([{ server_id: 2, team1_id: 4, team2_id: 3, max_maps: 3, veto_mappool: "de_nuke de_inferno de_mirage", ignore_server: true }])
+        .expect(200);
+      const id = created.body.id;
+      // Loaded 10 minutes ago, so "no match loaded" isn't within the loading grace period.
+      await db.query("UPDATE `match` SET start_time = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE) WHERE id = ?", [id]);
+      const status = (overrides) => async () => ({
+        gamestate: "live", matchid: id, map_number: 0, maps: ["de_nuke", "de_inferno", "de_mirage"],
+        team1: { series_score: 0, current_map_score: 7 }, team2: { series_score: 0, current_map_score: 4 },
+        ...overrides
+      });
+
+      // The panel never saw map 0 go live: the row is created from the server's score.
+      let state = await checkMatch(id, status());
+      expect(state.state).toBe("ok");
+      let maps = await db.query("SELECT map_number, team1_score, team2_score, stats_incomplete FROM map_stats WHERE match_id = ?", [id]);
+      expect(maps).toEqual([expect.objectContaining({ map_number: 0, team1_score: 7, team2_score: 4, stats_incomplete: 1 })]);
+
+      // A changed score is only taken once the server reported it twice.
+      await checkMatch(id, status({ team1: { series_score: 0, current_map_score: 9 } }));
+      maps = await db.query("SELECT team1_score FROM map_stats WHERE match_id = ? AND map_number = 0", [id]);
+      expect(maps[0].team1_score).toBe(7);
+      await checkMatch(id, status({ team1: { series_score: 0, current_map_score: 9 } }));
+      maps = await db.query("SELECT team1_score FROM map_stats WHERE match_id = ? AND map_number = 0", [id]);
+      expect(maps[0].team1_score).toBe(9);
+
+      // Restarted server: reported after the second check in a row.
+      expect((await checkMatch(id, async () => ({ gamestate: "none" }))).state).toBe("ok");
+      expect((await checkMatch(id, async () => ({ gamestate: "none" }))).state).toBe("interrupted");
+      const read = await request.get(`/matches/${id}/server/state`).expect(200);
+      expect(read.body.server_state).toMatchObject({ state: "interrupted", dismissed: false });
+      expect(read.body.server_state.reason).toMatch(/No match is loaded/);
+
+      await request.post(`/matches/${id}/server/dismiss`).expect(200);
+      expect((await request.get(`/matches/${id}/server/state`)).body.server_state.dismissed).toBe(true);
+      // Reload needs a real server; in tests MatchZy "doesn't load", which the route still accepts.
+      await request.post(`/matches/${id}/server/reload`).expect(200);
+      // Back to normal clears the warning and the dismissal.
+      state = await checkMatch(id, status({ team1: { series_score: 0, current_map_score: 9 } }));
+      expect(state).toMatchObject({ state: "ok", dismissed_at: null });
+      // Later suites expect no map stats and start their ids at 1.
+      await db.query("DELETE FROM map_stats WHERE match_id = ?", [id]);
+      await db.query("ALTER TABLE map_stats AUTO_INCREMENT = 1");
+      await db.query("UPDATE `match` SET cancelled = 1, end_time = UTC_TIMESTAMP() WHERE id = ?", [id]);
+    });
+    it("Should refuse server actions for anonymous users.", async () => {
+      const anonymous = agent(app);
+      await anonymous.post("/matches/1/server/check").expect(401);
+      await anonymous.post("/matches/1/server/dismiss").expect(401);
     });
   });
 

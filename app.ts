@@ -31,6 +31,7 @@ import templatesRouter from "./src/routes/templates.js";
 import scheduledRouter from "./src/routes/scheduled.js";
 import { startScheduleSweep } from "./src/services/scheduler.js";
 import { startPugSweep } from "./src/services/pugs.js";
+import { startHeartbeatSweep } from "./src/services/heartbeat.js";
 import matchesRouter from "./src/routes/matches/matches.js";
 import matchServerRouter from "./src/routes/matches/matchserver.js";
 import playerstatsRouter from "./src/routes/playerstats/playerstats.js";
@@ -235,6 +236,8 @@ if (process.env.NODE_ENV !== "test") {
   startPugSweep();
   // Creates scheduled matches when they are due.
   startScheduleSweep();
+  // Polls the game server of every live match (offline / restarted servers, missed events).
+  startHeartbeatSweep();
 }
 app.use("/v2", v2Router);
 app.use("/v2/demo", v2DemoRouter);

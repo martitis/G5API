@@ -9,6 +9,7 @@ import { normalizeSide } from "../src/services/mapflowservices.js";
 import { cleanSettings } from "../src/services/tournaments.js";
 import { eventProblem } from "../src/services/eventschemas.js";
 import { forMatch } from "../src/utility/emitter.js";
+import { assessServerState, nextState } from "../src/services/serverstate.js";
 import {
   doubleElimination,
   resolveBracket,
@@ -710,5 +711,57 @@ describe("forMatch (per-match stream listeners)", () => {
     listener("8");
     listener();
     expect(calls).toEqual(["x", "x"]);
+  });
+});
+
+describe("server heartbeat assessment", () => {
+  const panel = (overrides = {}) => ({
+    id: 12,
+    team1_series_score: 0,
+    team2_series_score: 0,
+    maps: [{ map_number: 0, team1_score: 5, team2_score: 3, ended: false }],
+    age_s: 600,
+    ...overrides
+  });
+  const live = (overrides = {}) => ({
+    gamestate: "live",
+    matchid: 12,
+    map_number: 0,
+    maps: ["de_mirage", "de_inferno", "de_nuke"],
+    team1: { series_score: 0, current_map_score: 5 },
+    team2: { series_score: 0, current_map_score: 3 },
+    ...overrides
+  });
+
+  it("is fine when the server matches the panel", () => {
+    expect(assessServerState(panel(), live())).toEqual({ seen: "ok", reason: null, resync: null });
+  });
+  it("sees an offline server and a restarted or reloaded one", () => {
+    expect(assessServerState(panel(), null).seen).toBe("offline");
+    expect(assessServerState(panel(), { gamestate: "none" }).seen).toBe("interrupted");
+    expect(assessServerState(panel(), live({ matchid: 99 })).reason).toMatch(/match 99/);
+  });
+  it("gives a new match time to load before 'no match loaded' counts", () => {
+    expect(assessServerState(panel({ age_s: 20 }), { gamestate: "none" }).seen).toBe("ok");
+  });
+  it("resyncs a score, missed map ends and the series after missed events", () => {
+    const { resync } = assessServerState(
+      panel({ maps: [{ map_number: 0, team1_score: 9, team2_score: 6, ended: false }] }),
+      live({ map_number: 1, team1: { series_score: 1, current_map_score: 4 }, team2: { series_score: 0, current_map_score: 2 } })
+    );
+    expect(resync).toEqual({
+      map: { map_number: 1, map_name: "de_inferno", team1_score: 4, team2_score: 2, insert: true },
+      close_maps: [0],
+      series: { team1: 1, team2: 0 }
+    });
+  });
+  it("doesn't compare scores before the map is live", () => {
+    expect(assessServerState(panel(), live({ gamestate: "warmup", team1: { current_map_score: 0 } })).resync).toBeNull();
+  });
+  it("reports a problem only after two checks in a row", () => {
+    const once = nextState({ state: "ok", strikes: 0 }, "offline");
+    expect(once).toEqual({ state: "ok", strikes: 1 });
+    expect(nextState(once, "offline")).toEqual({ state: "offline", strikes: 2 });
+    expect(nextState({ state: "offline", strikes: 4 }, "ok")).toEqual({ state: "ok", strikes: 0 });
   });
 });
