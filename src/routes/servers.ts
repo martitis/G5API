@@ -104,13 +104,13 @@ router.get("/", Utils.ensureAuthenticated, async (req, res, next) => {
     let sql: string;
     if (req.user && Utils.superAdminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.last_seen, gs.last_checked, gs.last_gamestate, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id";
     } else if (req.user && Utils.adminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.last_seen, gs.last_checked, gs.last_gamestate, gs.display_name, gs.ip_string, gs.port, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id";
     } else {
       sql =
-        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.display_name, usr.name, gs.public_server, gs.flag FROM game_server gs, user usr WHERE gs.public_server=1 AND usr.id = gs.user_id";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.last_seen, gs.last_checked, gs.last_gamestate, gs.display_name, usr.name, gs.public_server, gs.flag FROM game_server gs, user usr WHERE gs.public_server=1 AND usr.id = gs.user_id";
     }
     let servers: RowDataPacket[] = await db.query(sql);
     res.json({ servers });
@@ -231,7 +231,7 @@ router.get("/myservers", Utils.ensureAuthenticated, async (req, res, next) => {
   try {
     // Check if admin, if they are use this query.
     let sql: string =
-      "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND usr.id=?";
+      "SELECT gs.id, gs.in_use, gs.practice_mode, gs.last_seen, gs.last_checked, gs.last_gamestate, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, usr.id as user_id, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND usr.id=?";
     let servers: RowDataPacket[] = await db.query(sql, [req.user?.id]);
     res.json({ servers });
   } catch (err) {
@@ -278,11 +278,11 @@ router.get("/:server_id", Utils.ensureAuthenticated, async (req, res, next) => {
     let server: RowDataPacket[];
     if (req.user && Utils.superAdminCheck(req.user)) {
       sql =
-        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ?";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.last_seen, gs.last_checked, gs.last_gamestate, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ?";
       server = await db.query(sql, [serverID]);
     } else {
       sql =
-        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ? AND usr.id = ?";
+        "SELECT gs.id, gs.in_use, gs.practice_mode, gs.last_seen, gs.last_checked, gs.last_gamestate, gs.ip_string, gs.port, gs.display_name, gs.public_server, usr.name, gs.flag, gs.gotv_port, gs.join_password FROM game_server gs, user usr WHERE usr.id = gs.user_id AND gs.id = ? AND usr.id = ?";
       server = await db.query(sql, [serverID, req.user?.id]);
     }
     if (server.length < 1) {

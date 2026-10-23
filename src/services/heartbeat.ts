@@ -21,22 +21,46 @@ const STATUS_TIMEOUT_MS = 5000;
 
 const sqlNow = () => new Date().toISOString().slice(0, 19).replace("T", " ");
 
-/** The match's game server's get5_status, or null when it doesn't answer in time. */
-async function fetchStatus(serverId: number): Promise<Get5Status | null> {
+interface Probe {
+  /** RCON answered (MatchZy may still be missing: then status is null). */
+  reachable: boolean;
+  status: Get5Status | null;
+  at: number;
+}
+
+/** The latest probe per server; the match check reuses one younger than this instead of asking again. */
+const probes = new Map<number, Probe>();
+const PROBE_FRESH_MS = 15000;
+
+/** Asks a game server for get5_status (5 s timeout) and remembers the answer. */
+async function probeServer(serverId: number): Promise<Probe> {
   const rows: RowDataPacket[] = await db.query("SELECT ip_string, port, rcon_password FROM game_server WHERE id = ?", [
     serverId
   ]);
-  if (!rows.length) return null;
+  if (!rows.length) return { reachable: false, status: null, at: Date.now() };
   const server = new GameServer(rows[0].ip_string, rows[0].port, rows[0].rcon_password);
   let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), STATUS_TIMEOUT_MS);
+  const timeout = new Promise<Probe>((resolve) => {
+    timer = setTimeout(() => resolve({ reachable: false, status: null, at: Date.now() }), STATUS_TIMEOUT_MS);
   });
+  const ask = server.getMatchStatus().then(
+    (status: Get5Status | null): Probe => ({ reachable: true, status, at: Date.now() }),
+    (): Probe => ({ reachable: false, status: null, at: Date.now() })
+  );
   try {
-    return (await Promise.race([server.getMatchStatus().catch(() => null), timeout])) as Get5Status | null;
+    const probe = await Promise.race([ask, timeout]);
+    probes.set(serverId, probe);
+    return probe;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The match's game server's get5_status, or null when it doesn't answer in time (a fresh probe is reused). */
+async function fetchStatus(serverId: number): Promise<Get5Status | null> {
+  const cached = probes.get(serverId);
+  const probe = cached && Date.now() - cached.at < PROBE_FRESH_MS ? cached : await probeServer(serverId);
+  return probe.reachable ? probe.status : null;
 }
 
 /** Writes a resync to the DB: the current map's score, earlier maps the panel missed the end of, the series score. */
@@ -219,6 +243,53 @@ export async function checkAllMatches(): Promise<void> {
   } finally {
     sweeping = false;
   }
+}
+
+/** Probes one game server and stores when it last answered (game_server.last_seen / last_checked). */
+export async function checkServer(serverId: number): Promise<Probe> {
+  const probe = await probeServer(serverId);
+  const now = sqlNow();
+  if (probe.reachable) {
+    await db.query("UPDATE game_server SET last_seen = ?, last_checked = ?, last_gamestate = ? WHERE id = ?", [
+      now,
+      now,
+      probe.status?.gamestate ?? null,
+      serverId
+    ]);
+  } else {
+    await db.query("UPDATE game_server SET last_checked = ? WHERE id = ?", [now, serverId]);
+  }
+  return probe;
+}
+
+let sweepingServers = false;
+
+/** Probes every game server, ten at a time; a sweep still running is never started twice. */
+export async function checkAllServers(): Promise<void> {
+  if (sweepingServers) return;
+  sweepingServers = true;
+  try {
+    const rows: RowDataPacket[] = await db.query("SELECT id FROM game_server");
+    for (let i = 0; i < rows.length; i += 10) {
+      await Promise.all(
+        rows.slice(i, i + 10).map((row) =>
+          checkServer(row.id).catch((err) => logger.error({ err, server_id: row.id }, "Server check failed"))
+        )
+      );
+    }
+  } finally {
+    sweepingServers = false;
+  }
+}
+
+/** Probes every server at once and then every 10 s (the servers page shows when each last answered). */
+export function startServerSweep(intervalMs = 10000): NodeJS.Timeout {
+  checkAllServers().catch((err) => logger.error({ err }, "Server sweep failed"));
+  const timer = setInterval(() => {
+    checkAllServers().catch((err) => logger.error({ err }, "Server sweep failed"));
+  }, intervalMs);
+  timer.unref();
+  return timer;
 }
 
 /** Runs a check at once (catches up on anything that happened while the API was down), then every 30 s. */
