@@ -4793,11 +4793,6 @@ real-require@^0.2.0:
   resolved "https://registry.yarnpkg.com/real-require/-/real-require-0.2.0.tgz#209632dea1810be2ae063a6ac084fee7e33fba78"
   integrity sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==
 
-redis-mock@^0.56.3:
-  version "0.56.3"
-  resolved "https://registry.npmjs.org/redis-mock/-/redis-mock-0.56.3.tgz"
-  integrity sha512-ynaJhqk0Qf3Qajnwvy4aOjS4Mdf9IBkELWtjd+NYhpiqu4QCNq6Vf3Q7c++XRPGiKiwRj9HWr0crcwy7EiPjYQ==
-
 redis@^4.6.13:
   version "4.7.0"
   resolved "https://registry.npmjs.org/redis/-/redis-4.7.0.tgz"
