@@ -293,7 +293,7 @@ State on 2026-10-23: **`development`** is the working branch in both repos (push
 - The old `../G5V-next` folder is a detached leftover worktree; delete it with `git worktree remove ../G5V-next`
   from `../G5V` when you no longer need it.
 - [x] Push `phase5-match-list` and `development` in both repos
-- [ ] Open the two PRs `development` → `master` (needs `gh auth login`, or the GitHub web form)
+- [x] PRs opened 2026-10-23: martitis/G5API#9 and martitis/G5V#5 (`development` → `master`; merge G5API first or together)
 - [ ] Before merging the panel: click through every page against a running API (Phase 4 open item), PUG queue with two
   Steam accounts, a tournament with real matches
 
