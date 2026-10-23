@@ -1,7 +1,7 @@
 # G5API: backend for a CS2 tournament panel (MatchZy)
 
 Express/TypeScript API that manages CS2 matches, teams, servers, seasons and stats, and drives the
-**MatchZy** plugin over RCON. It started as a fork of PhlexPlexico/G5API (built for Get5) and now **diverges
+**MatchZy** plugin over RCON. It started as a fork of the original Get5-era G5API (credited in README/LICENSE) and now **diverges
 freely**, so don't try to stay merge-compatible with upstream.
 Frontend: `../G5V` (Vue). Roadmap and progress: [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md). Tick items off as they land.
 

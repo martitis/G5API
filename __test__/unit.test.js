@@ -266,10 +266,10 @@ describe("Utils.validateCvars", () => {
 
 describe("Utils.isSteamId64 / safeCompare", () => {
   it("validates SteamID64s", () => {
-    expect(Utils.isSteamId64("76561198025644194")).toBe(true);
+    expect(Utils.isSteamId64("76561198000000042")).toBe(true);
     expect(Utils.isSteamId64("12345")).toBe(false);
-    expect(Utils.isSteamId64("76561198025644194; quit")).toBe(false);
-    expect(Utils.isSteamId64(76561198025644194)).toBe(false);
+    expect(Utils.isSteamId64("76561198000000042; quit")).toBe(false);
+    expect(Utils.isSteamId64(76561198000000042)).toBe(false);
   });
 
   it("never matches missing keys", () => {

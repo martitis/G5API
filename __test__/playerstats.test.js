@@ -15,7 +15,7 @@ describe("Test the playerstats routes", () => {
       .expect(404);
   });
   it('Should get the player stats of the mock user.', () => {
-    return request.get('/playerstats/76561198025644194')
+    return request.get('/playerstats/76561198000000042')
       .expect(404);
   });
   it('Should get the player stats of the third match.', () => {
@@ -36,7 +36,7 @@ describe("Test the playerstats routes", () => {
       map_id: 2,
       team_id: 4,
       steam_id: '12345678901011121',
-      name: 'Actually Phlex',
+      name: 'Test Admin',
       api_key: apiKey
     }];
     return request
@@ -102,7 +102,7 @@ describe("Test the playerstats routes", () => {
       map_id: 2,
       team_id: 4,
       steam_id: '12345678901011121',
-      name: 'Actually Phlex',
+      name: 'Test Admin',
       api_key: 'NOTAGOODAPIKEY'
     }];
     return request

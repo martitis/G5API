@@ -22,7 +22,7 @@ describe("Test the team routes", () => {
       public_team: 1,
       auth_name: {
         "76561198025644200": {
-          "name": "Not Phlex"
+          "name": "Other Player"
         }
       }
     }];
@@ -45,10 +45,10 @@ describe("Test the team routes", () => {
       public_team: 0,
       auth_name: {
         "76561198025644200": {
-          "name": "Not Phlex"
+          "name": "Other Player"
         },
-        "76561198025644194": {
-          "name": "Actually Phlex"
+        "76561198000000042": {
+          "name": "Test Admin"
         }
       }
     }];
@@ -71,10 +71,10 @@ describe("Test the team routes", () => {
       public_team: 1,
       auth_name: {
         "76561198025644200": {
-          "name": "Not Phlex"
+          "name": "Other Player"
         },
-        "76561198025644194": {
-          "name": "Actually Phlex"
+        "76561198000000042": {
+          "name": "Test Admin"
         }
       }
     }];
@@ -97,12 +97,12 @@ describe("Test the team routes", () => {
       public_team: 1,
       auth_name: {
         "76561198025644200": {
-          "name": "Not Phlex",
+          "name": "Other Player",
           "captain": 0,
           "coach": 0
         },
         "76561198025644201": {
-          "name": "Actually Phlex",
+          "name": "Test Admin",
           "captain": 0,
           "coach": 0
         }

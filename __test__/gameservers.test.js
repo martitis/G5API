@@ -19,7 +19,7 @@ describe("Test the game server routes.", () => {
       {
         ip_string: "192.168.0.1",
         port: 27015,
-        display_name: "Phlex's Temp Server",
+        display_name: "Temp Server",
         rcon_password: password,
         public_server: 1,
       },
@@ -39,7 +39,7 @@ describe("Test the game server routes.", () => {
       {
         ip_string: "192.168.0.1",
         port: 27016,
-        display_name: "Phlex's Temp Server #2",
+        display_name: "Temp Server #2",
         rcon_password: password,
         public_server: 1,
       },
@@ -59,7 +59,7 @@ describe("Test the game server routes.", () => {
       {
         ip_string: "192.168.0.1",
         port: 27020,
-        display_name: "Phlex's Not So Temp Server",
+        display_name: "Permanent Server",
         rcon_password: password,
         public_server: 1,
       },
@@ -106,7 +106,7 @@ describe("Test the game server routes.", () => {
   it("Should transfer ownership to the second user.", () => {
     let updatedServerData = [
       {
-        display_name: "Phlex's Temp Server #2 EDITED",
+        display_name: "Temp Server #2 EDITED",
         user_id: 2,
         server_id: 2,
       },
@@ -151,7 +151,7 @@ describe("Test the game server routes.", () => {
   it("Should try and fail to edit server 2.", () => {
     let updatedServerData = [
       {
-        display_name: "Phlex's Temp Server #2 EDITED BAD ACT0R",
+        display_name: "Temp Server #2 EDITED BAD ACT0R",
         user_id: 1,
         server_id: 2,
       },

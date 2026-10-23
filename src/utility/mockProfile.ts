@@ -1,30 +1,14 @@
+/** The Steam profile the mock login (tests only) signs in as. Not a real person; the ID only has the SteamID64 format. */
 export default class user {
-  id = "76561198025644194";
-  displayName = "Phlex";
+  id = "76561198000000042";
+  displayName = "Test Admin";
+  // Steam's default avatar.
   photos = [
-    {
-      value: "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/d6/d6f3cfd2a1f5131863bbca13675412924cccc004.jpg",
-    },
-    {
-      value: "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/d6/d6f3cfd2a1f5131863bbca13675412924cccc004_medium.jpg",
-    },
-    {
-      value: "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/d6/d6f3cfd2a1f5131863bbca13675412924cccc004_full.jpg",
-    }];
-    identifier = 'https://steamcommunity.com/openid/id/76561198025644194';
-    super_admin = 1;
-    admin = 1;
-};
-// export const id = "76561198025644194";
-// export const displayName = "Phlex";
-// export const photos = [
-//   {
-//     value: "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/d6/d6f3cfd2a1f5131863bbca13675412924cccc004.jpg",
-//   },
-//   {
-//     value: "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/d6/d6f3cfd2a1f5131863bbca13675412924cccc004_medium.jpg",
-//   },
-//   {
-//     value: "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/d6/d6f3cfd2a1f5131863bbca13675412924cccc004_full.jpg",
-//   },
-// ];
+    { value: "https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb.jpg" },
+    { value: "https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb_medium.jpg" },
+    { value: "https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb_full.jpg" }
+  ];
+  identifier = "https://steamcommunity.com/openid/id/76561198000000042";
+  super_admin = 1;
+  admin = 1;
+}

@@ -105,7 +105,7 @@ describe("Test the user routes", () => {
   it('Should update the existing test user to remove admin privileges.', () => {
     let updatedUserData = [{
       id: 1,
-      steam_id: '76561198025644194',
+      steam_id: '76561198000000042',
       name: "Get Updated Kid",
       admin: 0,
       super_admin: 0
